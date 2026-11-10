@@ -1,0 +1,39 @@
+<?php
+
+defined('BASEPATH') || exit('No direct script access allowed');
+
+use Illuminate\Support\Facades\DB;
+
+class Migrasi_2026110892 extends MY_model
+{
+    public function up(): bool
+    {
+        $urls = [
+            'anggaran-pendapatan' => 'keuangan_manual/anggaran_rab/pendapatan',
+            'anggaran-belanja' => 'keuangan_manual/anggaran_rab/belanja',
+            'anggaran-pembiayaan' => 'keuangan_manual/anggaran_rab/pembiayaan',
+        ];
+
+        foreach (DB::table('config')->pluck('id') as $configId) {
+            foreach ($urls as $slug => $url) {
+                DB::table('setting_modul')
+                    ->where('config_id', $configId)
+                    ->where('slug', $slug)
+                    ->update(['url' => $url]);
+            }
+
+            foreach (DB::table('user_grup')->where('config_id', $configId)->pluck('id') as $groupId) {
+                cache()->forget($groupId . '_admin_menu');
+            }
+        }
+
+        $this->cache->hapus_cache_untuk_semua('_cache_modul');
+
+        return true;
+    }
+
+    public function down(): bool
+    {
+        return true;
+    }
+}

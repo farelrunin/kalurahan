@@ -1,0 +1,29 @@
+<?php defined('BASEPATH') OR exit('No direct script access allowed'); ?>
+
+ERROR - 2025-07-11 02:24:55 --> Client error: `GET https://idm.kemendesa.go.id/open/api/desa/rumusan/3402142001/2020` resulted in a `400 Bad Request` response:
+{"status":400,"error":true,"message":"ID Desa tidak ditemukan"}
+
+ERROR - 2025-07-11 03:03:47 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 04:04:58 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 04:04:58 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Common.php 571
+ERROR - 2025-07-11 09:15:16 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 09:41:49 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 09:41:49 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Common.php 571
+ERROR - 2025-07-11 12:31:20 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 13:19:37 --> Severity: error --> Exception: syntax error, unexpected identifier "version" (View: /home/sitb2342/public_html/resources/views/sitemap.blade.php) /home/sitb2342/public_html/storage/framework/views/9a78fc5216fb1ea931384d682e93457d.php 1
+ERROR - 2025-07-11 15:54:54 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:19:41 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:19:47 --> Severity: error --> Exception: Unsupported operand types: string - int /home/sitb2342/public_html/donjo-app/controllers/First.php 88
+ERROR - 2025-07-11 20:19:53 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:19:55 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:19:55 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:19:57 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:19:59 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:20:01 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:20:07 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:20:12 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:20:13 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:20:13 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 20:20:14 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 22:24:13 --> Severity: Warning --> Cannot modify header information - headers already sent by (output started at __mnx_runtime:1) /home/sitb2342/public_html/vendor/codeigniter/framework/system/core/Security.php 287
+ERROR - 2025-07-11 22:58:32 --> Severity: error --> Exception: syntax error, unexpected identifier "version" (View: /home/sitb2342/public_html/resources/views/sitemap.blade.php) /home/sitb2342/public_html/storage/framework/views/9a78fc5216fb1ea931384d682e93457d.php 1

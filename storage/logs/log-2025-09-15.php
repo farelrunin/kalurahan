@@ -1,0 +1,35 @@
+<?php defined('BASEPATH') OR exit('No direct script access allowed'); ?>
+
+ERROR - 2025-09-15 00:53:22 --> Unable to connect to the database
+ERROR - 2025-09-15 06:14:43 --> Unable to connect to the database
+ERROR - 2025-09-15 09:22:08 --> Unable to connect to the database
+ERROR - 2025-09-15 10:11:02 --> Unable to connect to the database
+ERROR - 2025-09-15 10:11:03 --> Unable to connect to the database
+ERROR - 2025-09-15 10:14:18 --> Unable to connect to the database
+ERROR - 2025-09-15 10:32:22 --> Unable to connect to the database
+ERROR - 2025-09-15 10:32:29 --> Unable to connect to the database
+ERROR - 2025-09-15 11:01:18 --> Unable to connect to the database
+ERROR - 2025-09-15 11:13:25 --> Unable to connect to the database
+ERROR - 2025-09-15 12:57:07 --> Unable to connect to the database
+ERROR - 2025-09-15 12:57:15 --> Unable to connect to the database
+ERROR - 2025-09-15 12:57:17 --> Unable to connect to the database
+ERROR - 2025-09-15 14:22:48 --> Unable to connect to the database
+ERROR - 2025-09-15 14:35:51 --> Unable to connect to the database
+ERROR - 2025-09-15 14:49:10 --> Unable to connect to the database
+ERROR - 2025-09-15 15:01:48 --> Unable to connect to the database
+ERROR - 2025-09-15 15:01:53 --> Unable to connect to the database
+ERROR - 2025-09-15 15:33:37 --> Unable to connect to the database
+ERROR - 2025-09-15 15:33:42 --> Unable to connect to the database
+ERROR - 2025-09-15 15:33:54 --> Unable to connect to the database
+ERROR - 2025-09-15 17:01:39 --> Unable to connect to the database
+ERROR - 2025-09-15 17:02:00 --> Unable to connect to the database
+ERROR - 2025-09-15 17:02:03 --> Unable to connect to the database
+ERROR - 2025-09-15 17:02:05 --> Unable to connect to the database
+ERROR - 2025-09-15 17:02:07 --> Unable to connect to the database
+ERROR - 2025-09-15 18:41:51 --> Unable to connect to the database
+ERROR - 2025-09-15 18:41:56 --> Unable to connect to the database
+ERROR - 2025-09-15 18:41:59 --> Unable to connect to the database
+ERROR - 2025-09-15 18:42:01 --> Unable to connect to the database
+ERROR - 2025-09-15 18:42:03 --> Unable to connect to the database
+ERROR - 2025-09-15 18:57:16 --> Unable to connect to the database
+ERROR - 2025-09-15 22:04:33 --> Unable to connect to the database

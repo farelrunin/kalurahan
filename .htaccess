@@ -1,0 +1,53 @@
+# OpenSID - Apache .htaccess
+
+RewriteEngine On
+RewriteBase /
+
+# Paksa menggunakan HTTPS
+# Catatan: sesuaikan jika menggunakan Cloudflare Flexible SSL
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+
+# Hilangkan index.php dari URL melalui routing OpenSID
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php/$1 [L,QSA]
+
+# Cegah directory listing
+Options -Indexes
+
+# Lindungi file tersembunyi
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# Lindungi file konfigurasi tertentu
+<FilesMatch "^(composer\.json|composer\.lock|mitra|app_key)$">
+    Require all denied
+</FilesMatch>
+
+# Blokir akses langsung ke arsip ZIP dan RAR
+<FilesMatch "\.(zip|rar)$">
+    Require all denied
+</FilesMatch>
+
+# Cache untuk file statis
+<IfModule mod_expires.c>
+    ExpiresActive On
+
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType image/x-icon "access plus 1 year"
+
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+
+    ExpiresByType application/pdf "access plus 1 month"
+    ExpiresByType video/mp4 "access plus 1 month"
+</IfModule>

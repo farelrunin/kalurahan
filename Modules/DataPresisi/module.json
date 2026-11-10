@@ -1,0 +1,13 @@
+{
+    "name": "DataPresisi",
+    "alias": "Data Presisi",
+    "description": "Modul untuk mengelola data presisi desa",
+    "keywords": ["data", "presisi", "desa"],
+    "priority": 1,
+    "providers": [],
+    "files": [],
+    "thumbnail": "",
+    "totalInstall": 0,
+    "price": "Rp. 200.000",
+    "version": "2601.0.0"
+}

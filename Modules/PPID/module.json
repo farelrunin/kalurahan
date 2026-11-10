@@ -1,0 +1,13 @@
+{
+    "name": "PPID",
+    "alias": "Module PPID",
+    "description": "Manajemen data PPID",
+    "keywords": [],
+    "priority": 0,
+    "providers": [],
+    "files": [],
+    "thumbnail": "https://layanan.opendesa.id/storage/uploads/modules/thumbnail_berkas_ae6d94c4-6322-4350-ac96-4dd13c1c71aa.png",
+    "totalInstall": 0,
+    "price": "",
+    "version": "2601.0.0"
+}

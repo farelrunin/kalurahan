@@ -1,0 +1,20 @@
+.env
+.env.*
+!.env.example
+error_log
+*.log
+*.sql
+*.sql.gz
+*.sqlite
+*.db
+/.ftpquota
+/backup 22oktober2025/
+/backup_inkremental/
+/rilis-premium-2510.0.1.zip
+/dewisinta.sitimulyo.id/
+/tarunabhakti.sitimulyo.id/
+/wp-config.php
+/storage/framework/cache/
+/storage/framework/views/
+/storage/logs/
+/desa/config/database.php

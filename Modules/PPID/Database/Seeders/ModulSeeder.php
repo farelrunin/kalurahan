@@ -1,0 +1,123 @@
+<?php
+
+/*
+ *
+ * File ini bagian dari:
+ *
+ * OpenSID
+ *
+ * Sistem informasi desa sumber terbuka untuk memajukan desa
+ *
+ * Aplikasi dan source code ini dirilis berdasarkan lisensi GPL V3
+ *
+ * Hak Cipta 2009 - 2015 Combine Resource Institution (http://lumbungkomunitas.net/)
+ * Hak Cipta 2016 - 2025 Perkumpulan Desa Digital Terbuka (https://opendesa.id)
+ *
+ * Dengan ini diberikan izin, secara gratis, kepada siapa pun yang mendapatkan salinan
+ * dari perangkat lunak ini dan file dokumentasi terkait ("Aplikasi Ini"), untuk diperlakukan
+ * tanpa batasan, termasuk hak untuk menggunakan, menyalin, mengubah dan/atau mendistribusikan,
+ * asal tunduk pada syarat berikut:
+ *
+ * Pemberitahuan hak cipta di atas dan pemberitahuan izin ini harus disertakan dalam
+ * setiap salinan atau bagian penting Aplikasi Ini. Barang siapa yang menghapus atau menghilangkan
+ * pemberitahuan ini melanggar ketentuan lisensi Aplikasi Ini.
+ *
+ * PERANGKAT LUNAK INI DISEDIAKAN "SEBAGAIMANA ADANYA", TANPA JAMINAN APA PUN, BAIK TERSURAT MAUPUN
+ * TERSIRAT. PENULIS ATAU PEMEGANG HAK CIPTA SAMA SEKALI TIDAK BERTANGGUNG JAWAB ATAS KLAIM, KERUSAKAN ATAU
+ * KEWAJIBAN APAPUN ATAS PENGGUNAAN ATAU LAINNYA TERKAIT APLIKASI INI.
+ *
+ * @package   OpenSID
+ * @author    Tim Pengembang OpenDesa
+ * @copyright Hak Cipta 2009 - 2015 Combine Resource Institution (http://lumbungkomunitas.net/)
+ * @copyright Hak Cipta 2016 - 2025 Perkumpulan Desa Digital Terbuka (https://opendesa.id)
+ * @license   http://www.gnu.org/licenses/gpl.html GPL V3
+ * @link      https://github.com/OpenSID/OpenSID
+ *
+ */
+
+namespace Modules\PPID\Database\Seeders;
+
+use App\Traits\Migrator;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Seeder;
+
+class ModulSeeder extends Seeder
+{
+    use Migrator;
+
+    /**
+     * Run the database seeds.
+     *
+     * @return void
+     */
+    public function run()
+    {
+        Model::unguard();
+
+        // Menu Utama
+        $this->createModul([
+            'modul'  => 'PPID',
+            'slug'   => 'ppid',
+            'url'    => 'ppid',
+            'ikon'   => 'fa-book',
+            'level'  => 1,
+            'parent' => 0,
+        ]);
+
+        // Sub Menu
+        $this->createModuls([
+            [
+                'modul'       => 'Daftar Dokumen',
+                'url'         => 'ppid/daftar-dokumen',
+                'slug'        => 'ppid-daftar-dokumen',
+                'ikon'        => 'fa-files-o',
+                'level'       => 2,
+                'parent_slug' => 'ppid',
+            ],
+            [
+                'modul'       => 'Permohonan Informasi',
+                'url'         => 'ppid/permohonan-informasi',
+                'slug'        => 'ppid-permohonan-informasi',
+                'ikon'        => 'fa-files-o',
+                'level'       => 2,
+                'parent_slug' => 'ppid',
+            ],
+            [
+                'modul'       => 'Permohonan Keberatan',
+                'url'         => 'ppid/permohonan-keberatan',
+                'slug'        => 'ppid-permohonan-keberatan',
+                'ikon'        => 'fa-files-o',
+                'level'       => 2,
+                'parent_slug' => 'ppid',
+            ],
+            [
+                'modul'       => 'Jenis Dokumen',
+                'url'         => 'ppid/jenis-dokumen',
+                'slug'        => 'ppid-jenis-dokumen',
+                'ikon'        => 'fa-folder-open',
+                'level'       => 2,
+                'parent_slug' => 'ppid',
+            ],
+            [
+                'modul'       => 'Pengaturan',
+                'url'         => 'ppid/pengaturan',
+                'slug'        => 'ppid-pengaturan',
+                'ikon'        => 'fa-cogs',
+                'level'       => 2,
+                'parent_slug' => 'ppid',
+            ],
+            [
+                'modul'       => 'Menu',
+                'url'         => 'ppid/menu',
+                'slug'        => 'ppid-menu',
+                'ikon'        => 'fa-list',
+                'level'       => 2,
+                'parent_slug' => 'ppid',
+            ],
+        ]);
+
+        folder(config('ppid.path.root'), 0755, 'htaccess2');
+        folder(config('ppid.path.dokumen'), 0755, 'htaccess2');
+        folder(config('ppid.path.pengaturan'), 0755, 'htaccess2');
+    }
+}
