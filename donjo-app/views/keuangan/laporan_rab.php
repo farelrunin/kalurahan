@@ -51,6 +51,7 @@ $months = [1 => 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', '
 			</div>
 			<div class="box-body">
 				<form method="get" action="<?= site_url('keuangan_manual/laporan_rab') ?>" class="no-print">
+					<input type="hidden" name="tahun_anggaran" value="<?= html_escape((string) $finance_filter_year) ?>">
 					<div class="row">
 						<div class="col-md-3 col-sm-6">
 							<div class="form-group">
@@ -59,20 +60,6 @@ $months = [1 => 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', '
 									<?php foreach ($reportTypes as $key => $label): ?>
 										<option value="<?= html_escape($key) ?>" <?= $report_key === $key ? 'selected' : '' ?>><?= html_escape($label) ?></option>
 									<?php endforeach; ?>
-								</select>
-							</div>
-						</div>
-						<div class="col-md-2 col-sm-6">
-							<div class="form-group">
-								<label for="laporan-tahun">Tahun</label>
-								<select name="tahun" id="laporan-tahun" class="form-control">
-									<option value="">Semua</option>
-									<?php foreach ($years as $year): ?>
-										<option value="<?= html_escape((string) $year) ?>" <?= $filters['tahun'] === (string) $year ? 'selected' : '' ?>><?= html_escape((string) $year) ?></option>
-									<?php endforeach; ?>
-									<?php if ($filters['tahun'] !== '' && ! in_array($filters['tahun'], array_map('strval', $years), true)): ?>
-										<option value="<?= html_escape($filters['tahun']) ?>" selected><?= html_escape($filters['tahun']) ?></option>
-									<?php endif; ?>
 								</select>
 							</div>
 						</div>
@@ -158,6 +145,47 @@ $months = [1 => 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', '
 										<td class="text-right"><?= $money(($summary[$newKey] ?? 0) - ($summary[$oldKey] ?? 0)) ?></td>
 									</tr>
 								<?php endforeach; ?>
+							</tbody>
+						</table>
+					</div>
+				<?php endif; ?>
+
+				<?php if ($filters['tahun'] !== ''): ?>
+					<h4>Komparasi Anggaran dan Realisasi per Rekening (<?= html_escape($filters['tahun']) ?>)</h4>
+					<p class="text-muted">
+						Realisasi bersumber dari APBDes manual. Pencocokan dilakukan berdasarkan tahun, jenis, dan kode rekening,
+						bukan per kegiatan atau sumber dana; baris yang tidak memiliki pasangan ditandai pada kolom status.
+					</p>
+					<div class="table-responsive">
+						<table class="table table-bordered table-striped table-hover">
+							<thead>
+								<tr>
+									<th>Jenis</th>
+									<th>Kode Rekening</th>
+									<th>Uraian</th>
+									<th class="text-right">e-RAB Murni</th>
+									<th class="text-right">e-RAB Perubahan</th>
+									<th class="text-right">Anggaran APBDes Manual</th>
+									<th class="text-right">Realisasi APBDes Manual</th>
+									<th>Status Pencocokan</th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php foreach ($account_comparison as $comparison): ?>
+									<tr>
+										<td><?= html_escape($comparison['jenis']) ?></td>
+										<td><?= html_escape($comparison['kode']) ?></td>
+										<td><?= html_escape($comparison['uraian'] !== '' ? $comparison['uraian'] : '-') ?></td>
+										<td class="text-right"><?= $money($comparison['murni']) ?></td>
+										<td class="text-right"><?= $money($comparison['perubahan']) ?></td>
+										<td class="text-right"><?= $money($comparison['anggaran_manual']) ?></td>
+										<td class="text-right"><?= $money($comparison['realisasi_manual']) ?></td>
+										<td><?= html_escape($comparison['status']) ?></td>
+									</tr>
+								<?php endforeach; ?>
+								<?php if ($account_comparison === []): ?>
+									<tr><td colspan="8" class="text-center">Belum ada data e-RAB atau APBDes manual untuk tahun ini.</td></tr>
+								<?php endif; ?>
 							</tbody>
 						</table>
 					</div>

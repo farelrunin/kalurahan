@@ -77,6 +77,7 @@ defined('BASEPATH') || exit('No direct script access allowed');
 				<div class="row">
 					<div class="col-sm-6">
 						<form action="<?= site_url('keuangan_manual/set_terpilih') ?>" method="POST" class="form form-horizontal">
+							<input type="hidden" name="tahun_anggaran" value="<?= html_escape((string) $tahun) ?>">
 							<table class="table table-bordered table-striped table-hover tabel-rincian">
 								<tbody>
 									<tr>
@@ -87,17 +88,6 @@ defined('BASEPATH') || exit('No direct script access allowed');
 												<option value="4.PENDAPATAN" <?= selected('4.PENDAPATAN', $jenis); ?>>4.PENDAPATAN</option>
 												<option value="5.BELANJA" <?= selected('5.BELANJA', $jenis); ?>>5.BELANJA</option>
 												<option value="6.PEMBIAYAAN" <?= selected('6.PEMBIAYAAN', $jenis); ?>>6.PEMBIAYAAN</option>
-											</select>
-										</td>
-									</tr>
-									<tr>
-										<td>Tahun Anggaran</td>
-										<td>:</td>
-										<td>
-											<select class="form-control input-sm select2" name="tahun_anggaran" onchange="this.form.submit();">
-												<?php foreach ($tahun_anggaran as $ta) :?>
-													<option value="<?= $ta ?>" <?= selected($ta, $tahun); ?>><?= $ta ?></option>
-												<?php endforeach ?>
 											</select>
 										</td>
 									</tr>

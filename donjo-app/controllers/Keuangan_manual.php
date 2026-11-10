@@ -40,11 +40,30 @@ defined('BASEPATH') || exit('No direct script access allowed');
 class Keuangan_manual extends Admin_Controller
 {
     public $modul_ini = 'keuangan';
+    public array $finance_filter_years = [];
+    public string $finance_filter_year = '';
+    public string $finance_filter_label = 'Tahun APBDes';
+    public string $finance_filter_type = 'apbdes';
+    public array $finance_filter_query = [];
+    public string $finance_filter_action = '';
 
     public function __construct()
     {
         parent::__construct();
         $this->load->model(['keuangan_manual_model', 'keuangan_grafik_manual_model']);
+        $yearFilter = $this->current_finance_year_filter_data();
+        $this->finance_filter_years = $yearFilter['finance_years'];
+        $this->finance_filter_year = $yearFilter['finance_year'];
+        $this->finance_filter_type = $this->is_rab_year_context()
+            ? 'rab'
+            : ($this->router->fetch_method() === 'laporan_rab' ? 'report' : 'apbdes');
+        $this->finance_filter_label = [
+            'rab' => 'Tahun RAB',
+            'report' => 'Tahun Laporan',
+            'apbdes' => 'Tahun APBDes',
+        ][$this->finance_filter_type];
+        $this->finance_filter_query = is_array($this->input->get()) ? $this->input->get() : [];
+        $this->finance_filter_action = current_url();
     }
 
     public function index(): void
@@ -67,10 +86,12 @@ class Keuangan_manual extends Admin_Controller
 
         isCan('b', 'anggaran-' . $pos);
         $this->sub_modul_ini = 'anggaran-' . $pos;
-        $this->render('keuangan/menu_anggaran_rab', [
+        $data = [
             'pos' => $pos,
             'title' => $positions[$pos],
-        ]);
+        ];
+        $this->add_finance_year_filter($data);
+        $this->render('keuangan/menu_anggaran_rab', $data);
     }
 
     // Manual Input Anggaran dan Realisasi APBDes
@@ -101,14 +122,9 @@ class Keuangan_manual extends Admin_Controller
         isCan('b', 'laporan-manual');
         $this->sub_modul_ini = 'laporan-manual';
 
-        $data['tahun_anggaran'] = $this->keuangan_manual_model->list_tahun_anggaran_manual();
-        $tahun                  = $this->session->set_tahun ?: $data['tahun_anggaran'][0];
-        $sess_manual            = [
-            'set_tahun' => $tahun,
-        ];
-        $this->session->set_userdata($sess_manual);
+        $yearFilter = $this->finance_rab_year_filter_data();
         $this->load->model('keuangan_grafik_manual_model');
-        $thn = $this->session->set_tahun;
+        $thn = $yearFilter['finance_year'];
 
         switch ($jenis) {
             case 'rincian_realisasi_bidang_manual':
@@ -128,6 +144,7 @@ class Keuangan_manual extends Admin_Controller
         $data                   = $this->keuangan_grafik_manual_model->lap_rp_apbd($thn);
         $data['tahun_anggaran'] = $this->keuangan_manual_model->list_tahun_anggaran_manual();
         $data['ta']             = $this->session->set_tahun;
+        $this->add_finance_year_filter($data);
         $this->session->submenu = 'Laporan Keuangan ' . $judul;
         $this->render('keuangan/rincian_realisasi_manual', $data);
     }
@@ -136,6 +153,7 @@ class Keuangan_manual extends Admin_Controller
     {
         $data                   = $this->keuangan_grafik_manual_model->grafik_keuangan_tema($thn);
         $data['tahun_anggaran'] = $this->keuangan_manual_model->list_tahun_anggaran_manual();
+        $this->add_finance_year_filter($data);
         $this->session->submenu = 'Grafik Keuangan';
         $this->render('keuangan/grafik_rp_apbd_manual', $data);
     }
@@ -145,8 +163,13 @@ class Keuangan_manual extends Admin_Controller
         isCan('b', 'input-data');
         $this->sub_modul_ini = 'input-data';
 
-        $data['tahun_anggaran'] = $this->keuangan_manual_model->list_tahun_anggaran_manual();
-        $default_tahun          = empty($data['tahun_anggaran']) ? null : $data['tahun_anggaran'][0];
+        $yearFilter = $this->finance_year_filter_data();
+        $data['tahun_anggaran'] = $yearFilter['finance_years'];
+        $data['finance_filter_years'] = $yearFilter['finance_years'];
+        $data['finance_filter_year'] = $yearFilter['finance_year'];
+        $data['finance_filter_query'] = $this->input->get() ?: [];
+        $data['finance_filter_action'] = current_url();
+        $default_tahun          = $data['finance_filter_year'];
         $this->session->set_tahun ??= $default_tahun;
         $this->session->set_jenis ??= '4.PENDAPATAN';
         $data['tahun']       = $this->session->set_tahun;
@@ -178,31 +201,36 @@ class Keuangan_manual extends Admin_Controller
         $data['references'] = $this->keuangan_manual_model->list_rab_referensi();
         $data['years']      = $this->keuangan_manual_model->list_tahun_rab();
         if ($data['years'] === []) {
-            $data['years'] = [date('Y')];
+            $data['years'] = [(string) ((int) date('Y') + 1)];
         }
-        $data['income_years'] = $this->keuangan_manual_model->list_tahun_pendapatan_manual();
+        $yearFilter = $this->finance_rab_year_filter_data();
+        $data['finance_filter_years'] = $yearFilter['finance_years'];
+        $data['finance_filter_year'] = $yearFilter['finance_year'];
+        $data['finance_filter_query'] = $this->input->get() ?: [];
+        $data['finance_filter_action'] = current_url();
+        $apbdesYearFilter = $this->finance_year_filter_data();
+        $data['income_years'] = array_values(array_unique(array_merge(
+            $this->keuangan_manual_model->list_tahun_pendapatan_manual(),
+            [$apbdesYearFilter['finance_year']]
+        )));
+        rsort($data['income_years'], SORT_NUMERIC);
         $selectedIncomeYear = $this->input->get('tahun', true);
         $selectedIncomeYear = is_scalar($selectedIncomeYear) && ctype_digit((string) $selectedIncomeYear)
             ? (string) $selectedIncomeYear
-            : ($data['income_years'][0] ?? '');
+            : $apbdesYearFilter['finance_year'];
         $data['selected_income_year'] = $selectedIncomeYear;
         $data['historical_income'] = $selectedIncomeYear !== ''
             ? $this->keuangan_manual_model->list_pendapatan_manual($selectedIncomeYear)
             : [];
-        $financeRabYears = array_column(
-            $this->keuangan_manual_model->list_rab_manual(['pos' => '6.PEMBIAYAAN']),
-            'tahun'
-        );
         $data['finance_years'] = array_values(array_unique(array_merge(
             $this->keuangan_manual_model->list_tahun_pembiayaan_manual(),
-            $financeRabYears,
-            [date('Y')]
+            [$apbdesYearFilter['finance_year']]
         )));
         rsort($data['finance_years'], SORT_NUMERIC);
         $selectedFinanceYear = $this->input->get('tahun', true);
         $selectedFinanceYear = is_scalar($selectedFinanceYear) && ctype_digit((string) $selectedFinanceYear)
             ? (string) $selectedFinanceYear
-            : ($data['finance_years'][0] ?? '');
+            : $apbdesYearFilter['finance_year'];
         $data['selected_finance_year'] = $selectedFinanceYear;
         $data['historical_finance'] = $selectedFinanceYear !== ''
             ? $this->keuangan_manual_model->list_pembiayaan_manual($selectedFinanceYear)
@@ -626,6 +654,8 @@ class Keuangan_manual extends Admin_Controller
             redirect('keuangan_manual/parameter_rab');
         }
 
+        $data = [];
+        $this->add_finance_year_filter($data);
         $data['parameters'] = $this->data_parameter_rab();
         $data['parents'] = [
             'bidang' => $this->keuangan_manual_model->list_rab_parameter_parent('sub_bidang'),
@@ -746,6 +776,7 @@ class Keuangan_manual extends Admin_Controller
             'can_delete' => can('h', $slug),
             'can_export' => can('b', $slug),
         ];
+        $this->add_finance_year_filter($data);
         $this->render('keuangan/parameter_rab_katalog', $data);
     }
 
@@ -965,6 +996,12 @@ class Keuangan_manual extends Admin_Controller
         isCan('b', 'laporan-rab');
         $this->sub_modul_ini = 'laporan-rab';
         $get = $this->input->get();
+        $yearFilter = $this->finance_year_filter_data();
+        if (isset($get['tahun_anggaran'])) {
+            $get['tahun'] = $yearFilter['finance_year'];
+        } elseif (! isset($get['tahun'])) {
+            $get['tahun'] = $yearFilter['finance_year'];
+        }
         if ($reportShortcut !== null) {
             $get['laporan'] = $reportShortcut;
             $get['tahap'] = $shortcut === 'p' ? 'perubahan' : 'murni';
@@ -986,6 +1023,10 @@ class Keuangan_manual extends Admin_Controller
         $this->sub_modul_ini = ($stage === 'perubahan' ? 'perubahan-' : 'laporan-') . $reportSlug;
         $data = $this->data_laporan_rab(is_array($get) ? $get : []);
         $data['years'] = $this->keuangan_manual_model->list_tahun_rab();
+        $data['finance_filter_years'] = $yearFilter['finance_years'];
+        $data['finance_filter_year'] = $yearFilter['finance_year'];
+        $data['finance_filter_query'] = is_array($this->input->get()) ? $this->input->get() : [];
+        $data['finance_filter_action'] = current_url();
         $data['references'] = $this->keuangan_manual_model->list_rab_referensi();
         $data['can_export'] = can('b', 'laporan-rab');
         $data['export_url'] = site_url('keuangan_manual/ekspor_laporan_rab') . '?' . http_build_query($get);
@@ -1017,6 +1058,11 @@ class Keuangan_manual extends Admin_Controller
                 'Semula' => (float) $row['jumlah_semula'],
                 'Menjadi' => (float) $row['jumlah_menjadi'],
                 'Selisih' => (float) $row['jumlah_menjadi'] - (float) $row['jumlah_semula'],
+                'e-RAB Murni' => '',
+                'e-RAB Perubahan' => '',
+                'Anggaran APBDes Manual' => '',
+                'Realisasi APBDes Manual' => '',
+                'Status Pencocokan' => '',
                 'Laki-laki' => (int) $row['penerima_laki'],
                 'Perempuan' => (int) $row['penerima_perempuan'],
                 'RTM' => (int) $row['penerima_rtm'],
@@ -1051,6 +1097,11 @@ class Keuangan_manual extends Admin_Controller
                     'Semula' => (float) $data['summary'][$oldKey],
                     'Menjadi' => (float) $data['summary'][$newKey],
                     'Selisih' => (float) $data['summary'][$newKey] - (float) $data['summary'][$oldKey],
+                    'e-RAB Murni' => '',
+                    'e-RAB Perubahan' => '',
+                    'Anggaran APBDes Manual' => '',
+                    'Realisasi APBDes Manual' => '',
+                    'Status Pencocokan' => '',
                     'Laki-laki' => '',
                     'Perempuan' => '',
                     'RTM' => '',
@@ -1060,6 +1111,38 @@ class Keuangan_manual extends Admin_Controller
                     'TPK' => '',
                 ];
             }
+        }
+        foreach ($data['account_comparison'] as $comparison) {
+            $rows[] = [
+                'Tahun' => $data['filters']['tahun'],
+                'Tahap' => 'Komparasi Rekening',
+                'Pos Anggaran' => $comparison['jenis'],
+                'Kode Rekening' => $comparison['kode'],
+                'Uraian Rekening' => $comparison['uraian'],
+                'Bidang' => '',
+                'Kegiatan' => '',
+                'Output' => '',
+                'Keterangan Item' => '',
+                'Volume' => '',
+                'Satuan' => '',
+                'Harga Satuan' => '',
+                'Sumber Dana' => '',
+                'Semula' => '',
+                'Menjadi' => '',
+                'Selisih' => '',
+                'e-RAB Murni' => (float) $comparison['murni'],
+                'e-RAB Perubahan' => (float) $comparison['perubahan'],
+                'Anggaran APBDes Manual' => (float) $comparison['anggaran_manual'],
+                'Realisasi APBDes Manual' => (float) $comparison['realisasi_manual'],
+                'Status Pencocokan' => $comparison['status'],
+                'Laki-laki' => '',
+                'Perempuan' => '',
+                'RTM' => '',
+                'Lokasi' => '',
+                'Target SDGs' => '',
+                'PKA' => '',
+                'TPK' => '',
+            ];
         }
         if ($rows === []) {
             $rows[] = ['Informasi' => 'Tidak ada data untuk filter yang dipilih.'];
@@ -1185,6 +1268,7 @@ class Keuangan_manual extends Admin_Controller
             'report_title' => $reports[$reportKey][0],
             'rows' => $rows,
             'summary' => $summary,
+            'account_comparison' => $year !== '' ? $this->laporan_realisasi_per_rekening($year) : [],
             'filters' => [
                 'tahun' => $year,
                 'tahap' => $stage,
@@ -1193,6 +1277,90 @@ class Keuangan_manual extends Admin_Controller
                 'sumber_dana' => $fund,
             ],
         ];
+    }
+
+    private function laporan_realisasi_per_rekening(string $year): array
+    {
+        $typeLabels = [
+            'pendapatan' => 'Pendapatan',
+            'belanja' => 'Belanja',
+            'pembiayaan' => 'Pembiayaan',
+        ];
+        $accountCode = static function ($value): string {
+            $parts = preg_split('/\s+/', trim((string) $value), 2);
+
+            return rtrim((string) ($parts[0] ?? ''), '.');
+        };
+        $comparison = [];
+
+        foreach ($this->keuangan_manual_model->laporan_rab(['tahun' => (int) $year]) as $row) {
+            $type = (string) $row['jenis'];
+            $stage = (string) $row['tahap'];
+            $code = $accountCode($row['rekening_kode'] ?? '');
+            if (! isset($typeLabels[$type]) || ! in_array($stage, ['murni', 'perubahan'], true) || $code === '') {
+                continue;
+            }
+
+            $key = $type . '|' . $code;
+            $comparison[$key] ??= [
+                'jenis' => $typeLabels[$type],
+                'kode' => $code,
+                'uraian' => (string) ($row['rekening_nama'] ?? ''),
+                'murni' => 0.0,
+                'perubahan' => 0.0,
+                'anggaran_manual' => 0.0,
+                'realisasi_manual' => 0.0,
+                'ada_rab' => true,
+                'ada_manual' => false,
+            ];
+            $comparison[$key][$stage] += (float) $row['jumlah_menjadi'];
+        }
+
+        foreach ($this->keuangan_manual_model->list_apbdes($year) as $row) {
+            $type = [
+                '4.PENDAPATAN' => 'pendapatan',
+                '5.BELANJA' => 'belanja',
+                '6.PEMBIAYAAN' => 'pembiayaan',
+            ][$row->Kd_Akun] ?? null;
+            $code = $accountCode($row->Kd_Rincian);
+            if ($type === null || $code === '') {
+                continue;
+            }
+
+            $key = $type . '|' . $code;
+            $comparison[$key] ??= [
+                'jenis' => $typeLabels[$type],
+                'kode' => $code,
+                'uraian' => '',
+                'murni' => 0.0,
+                'perubahan' => 0.0,
+                'anggaran_manual' => 0.0,
+                'realisasi_manual' => 0.0,
+                'ada_rab' => false,
+                'ada_manual' => false,
+            ];
+            if ($comparison[$key]['uraian'] === '') {
+                $parts = preg_split('/\s+/', trim((string) $row->Kd_Rincian), 2);
+                $comparison[$key]['uraian'] = trim((string) ($parts[1] ?? ''));
+            }
+            $comparison[$key]['anggaran_manual'] += (float) $row->Nilai_Anggaran;
+            $comparison[$key]['realisasi_manual'] += (float) $row->Nilai_Realisasi;
+            $comparison[$key]['ada_manual'] = true;
+        }
+
+        foreach ($comparison as &$row) {
+            $row['status'] = $row['ada_rab'] && $row['ada_manual']
+                ? 'Cocok berdasarkan tahun, jenis, dan kode rekening'
+                : ($row['ada_rab'] ? 'Belum ada data APBDes manual'
+                    : 'Tidak ditemukan rincian e-RAB dengan kode rekening ini');
+        }
+        unset($row);
+
+        usort($comparison, static function (array $left, array $right): int {
+            return [$left['jenis'], $left['kode']] <=> [$right['jenis'], $right['kode']];
+        });
+
+        return array_values($comparison);
     }
 
     public function data_anggaran(): void
@@ -1282,11 +1450,110 @@ class Keuangan_manual extends Admin_Controller
      */
     public function set_terpilih(): void
     {
-        $post_tahun               = $this->input->post('tahun_anggaran');
-        $post_jenis               = $this->input->post('jenis_anggaran');
-        $this->session->set_tahun = $post_tahun;
-        $this->session->set_jenis = $post_jenis;
+        $post_tahun = $this->input->post('tahun_anggaran');
+        $post_jenis = $this->input->post('jenis_anggaran');
+        if (is_scalar($post_tahun) && preg_match('/^\d{4}$/', (string) $post_tahun)
+            && (int) $post_tahun >= 2000 && (int) $post_tahun <= 2200) {
+            $this->session->set_tahun = (string) $post_tahun;
+        }
+        if (is_string($post_jenis) && in_array($post_jenis, ['4.PENDAPATAN', '5.BELANJA', '6.PEMBIAYAAN'], true)) {
+            $this->session->set_jenis = $post_jenis;
+        }
         redirect('keuangan_manual/manual_apbdes');
+    }
+
+    private function finance_year_filter_data(): array
+    {
+        $years = array_values(array_unique(array_merge(
+            $this->keuangan_manual_model->list_tahun_anggaran_manual(),
+            [date('Y')]
+        )));
+        $years = array_values(array_filter($years, static fn ($year): bool => preg_match('/^\d{4}$/', (string) $year) === 1));
+        rsort($years, SORT_NUMERIC);
+
+        $requestedYear = $this->is_rab_year_context()
+            ? $this->input->get('tahun', true)
+            : $this->input->get('tahun_anggaran', true);
+        if (! is_scalar($requestedYear) || preg_match('/^\d{4}$/', (string) $requestedYear) !== 1
+            || (int) $requestedYear < 2000 || (int) $requestedYear > 2200) {
+            $requestedYear = $this->is_rab_year_context() ? null : $this->input->get('tahun', true);
+        }
+        $sessionYear = $this->session->set_tahun ?? null;
+        if (is_scalar($requestedYear) && preg_match('/^\d{4}$/', (string) $requestedYear) === 1
+            && (int) $requestedYear >= 2000 && (int) $requestedYear <= 2200) {
+            $year = (string) $requestedYear;
+        } elseif (is_scalar($sessionYear) && preg_match('/^\d{4}$/', (string) $sessionYear) === 1
+            && (int) $sessionYear >= 2000 && (int) $sessionYear <= 2200) {
+            $year = (string) $sessionYear;
+        } else {
+            $year = (string) ($years[0] ?? date('Y'));
+        }
+
+        if (! in_array($year, array_map('strval', $years), true)) {
+            $years[] = $year;
+            rsort($years, SORT_NUMERIC);
+        }
+        $this->session->set_tahun = $year;
+
+        return [
+            'finance_years' => array_map('strval', $years),
+            'finance_year' => $year,
+        ];
+    }
+
+    private function finance_rab_year_filter_data(): array
+    {
+        $nextYear = (int) date('Y') + 1;
+        $years = array_values(array_unique(array_merge(
+            $this->keuangan_manual_model->list_tahun_rab(),
+            [$nextYear]
+        )));
+        $years = array_values(array_filter($years, static fn ($year): bool => preg_match('/^\d{4}$/', (string) $year) === 1));
+        rsort($years, SORT_NUMERIC);
+
+        $requestedYear = $this->input->get('tahun_anggaran', true);
+        $sessionYear = $this->session->set_tahun_rab ?? null;
+        if (is_scalar($requestedYear) && preg_match('/^\d{4}$/', (string) $requestedYear) === 1
+            && (int) $requestedYear >= 2000 && (int) $requestedYear <= 2200) {
+            $year = (string) $requestedYear;
+        } elseif (is_scalar($sessionYear) && preg_match('/^\d{4}$/', (string) $sessionYear) === 1
+            && (int) $sessionYear >= 2000 && (int) $sessionYear <= 2200) {
+            $year = (string) $sessionYear;
+        } else {
+            $year = (string) $nextYear;
+        }
+
+        if (! in_array($year, array_map('strval', $years), true)) {
+            $years[] = $year;
+            rsort($years, SORT_NUMERIC);
+        }
+        $this->session->set_tahun_rab = $year;
+
+        return [
+            'finance_years' => array_map('strval', $years),
+            'finance_year' => $year,
+        ];
+    }
+
+    private function current_finance_year_filter_data(): array
+    {
+        return $this->is_rab_year_context()
+            ? $this->finance_rab_year_filter_data()
+            : $this->finance_year_filter_data();
+    }
+
+    private function is_rab_year_context(): bool
+    {
+        return in_array($this->router->fetch_method(), ['anggaran_rab', 'rincian_rab'], true);
+    }
+
+    private function add_finance_year_filter(array &$data): void
+    {
+        $yearFilter = $this->current_finance_year_filter_data();
+        $data['finance_filter_years'] = $yearFilter['finance_years'];
+        $data['finance_filter_year'] = $yearFilter['finance_year'];
+        $data['finance_filter_query'] = is_array($this->input->get()) ? $this->input->get() : [];
+        $data['finance_filter_action'] = current_url();
     }
 
     private function respond_json(array $data, int $status = 200): void

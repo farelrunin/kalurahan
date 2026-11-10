@@ -13,6 +13,7 @@
 		var canDelete = page.data('can-delete') === 1;
 		var initialPos = page.attr('data-initial-pos') || '';
 		var initialMode = page.attr('data-initial-mode') || '';
+		var globalYear = Number(page.attr('data-finance-year')) || new Date().getFullYear();
 		var incomeInput = initialPos === '4.PENDAPATAN' && initialMode === 'input';
 		var incomeView = initialPos === '4.PENDAPATAN' && initialMode === 'lihat';
 		var incomeChange = initialPos === '4.PENDAPATAN' && initialMode === 'perubahan';
@@ -547,9 +548,19 @@
 		function filters() {
 			if (financeView || financeChange) {
 				return {
-					tahun: $('#finance-year').val(),
+					tahun: $('#finance-sidebar-year').val() || globalYear,
 					tahap: financeChange ? 'Perubahan' : '',
 					pos: '6.PEMBIAYAAN'
+				};
+			}
+			if (expenseView || expenseChange) {
+				return {
+					tahun: $('#finance-sidebar-year').val() || globalYear,
+					tahap: expenseChange ? 'Perubahan' : 'Murni',
+					pos: '5.BELANJA',
+					kd_bidang: $('#filter-bidang').val(),
+					kd_sub_bidang: $('#filter-sub-bidang').val(),
+					kd_kegiatan: $('#filter-kegiatan').val()
 				};
 			}
 			return {
@@ -582,7 +593,7 @@
 			$('#rab-id').val('');
 			$('#rab-tahun, #rab-tahap, #rab-pos').prop('disabled', false);
 			$('#rab-edit-notice').hide();
-			$('#rab-tahun').val(new Date().getFullYear());
+			$('#rab-tahun').val(globalYear);
 			$('#rab-tahap').val(initialMode === 'perubahan' ? 'Perubahan' : 'Murni');
 			$('input[name="expense-stage"]').val(['Murni']);
 			$('input[name="expense-stage"][value="' + $('#rab-tahap').val() + '"]').prop('checked', true);
@@ -867,7 +878,7 @@
 				return;
 			}
 			if (financeView) {
-				var targetYear = Number($('#finance-year').val()) || new Date().getFullYear();
+				var targetYear = Number($('#finance-sidebar-year').val()) || globalYear;
 				if (!window.confirm('Salin rincian Pembiayaan tahun lalu ke tahun anggaran ' + targetYear + '?')) {
 					return;
 				}
@@ -880,7 +891,6 @@
 					refreshCsrf(response);
 					notify('success', response.message);
 					$('#finance-source-wrap').hide();
-					$('#finance-year').val(targetYear);
 					loadRows();
 				}).fail(function (xhr) {
 					notify('error', requestError(xhr, 'Gagal mengimpor Pembiayaan tahun lalu'));
@@ -994,7 +1004,7 @@
 		$('#btn-impor-anggaran-semula').on('click', function () {
 			if (financeView || financeChange) {
 				$('#finance-source-wrap').toggle();
-				var selectedYear = Number($('#finance-year').val()) || new Date().getFullYear();
+				var selectedYear = Number($('#finance-sidebar-year').val()) || globalYear;
 				var year = financeView
 					? selectedYear - 1
 					: selectedYear;
@@ -1003,7 +1013,7 @@
 			}
 			if (expenseChange) {
 				$('#expense-change-source').toggle();
-				loadExpenseSources($('#filter-tahun').val() || new Date().getFullYear(), '#expense-change-source-rab');
+				loadExpenseSources($('#filter-tahun').val() || globalYear, '#expense-change-source-rab');
 				return;
 			}
 			var sourceId = $('#income-source-rab').val();
@@ -1047,7 +1057,7 @@
 		});
 
 		$('#btn-impor-tahun-lalu').on('click', function () {
-			var targetYear = new Date().getFullYear();
+			var targetYear = globalYear;
 			$('#expense-import-message').text('Sumber impor hanya mengambil rincian e-RAB Belanja Murni tahun ' +
 				(targetYear - 1) + ', bukan rekap historis yang tidak menyimpan rincian paket.').show();
 			$('#expense-import-source').toggle();
@@ -1061,7 +1071,7 @@
 				return;
 			}
 			if (!window.confirm('Salin rincian e-RAB Murni tahun lalu sebagai anggaran baru tahun ' +
-				new Date().getFullYear() + '?')) {
+				globalYear + '?')) {
 				return;
 			}
 			$.ajax({
@@ -1070,14 +1080,14 @@
 				dataType: 'json',
 				data: $.extend({
 					id: sourceId,
-					tahun: new Date().getFullYear(),
+					tahun: globalYear,
 					pos: '5.BELANJA'
 				}, csrfData())
 			}).done(function (response) {
 				refreshCsrf(response);
 				notify('success', response.message);
 				$('#expense-import-source').hide();
-				$('#filter-tahun').val(new Date().getFullYear());
+				$('#filter-tahun').val(globalYear);
 				$('#filter-tahap').val('Murni');
 				$('#filter-pos').val('5.BELANJA');
 				loadRows();
@@ -1104,6 +1114,7 @@
 			});
 		});
 
+		$('#filter-tahun').val(globalYear);
 		if (initialPos) {
 			$('#filter-pos').val(initialPos);
 		}
@@ -1111,7 +1122,7 @@
 			$('#filter-tahap').val('Perubahan');
 		}
 		if (expenseView || expenseChange) {
-			$('#filter-tahun').val(new Date().getFullYear());
+			$('#filter-tahun').val(globalYear);
 			$('#filter-tahap').val(expenseChange ? 'Perubahan' : 'Murni');
 			$('#filter-pos').val(initialPos);
 		}

@@ -164,7 +164,13 @@ class Admin_Controller extends MY_Controller
     public function render($view, ?array $data = null): void
     {
         $this->load->view('header', $this->header);
-        $this->load->view('nav');
+        $navigationData = [];
+        foreach (['finance_filter_years', 'finance_filter_year', 'finance_filter_label', 'finance_filter_type', 'finance_filter_query', 'finance_filter_action'] as $key) {
+            if (isset($this->{$key})) {
+                $navigationData[$key] = $this->{$key};
+            }
+        }
+        $this->load->view('nav', $navigationData);
         $this->load->view($view, $data);
         $this->load->view('footer');
     }

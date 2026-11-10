@@ -3,7 +3,7 @@
 defined('BASEPATH') || exit('No direct script access allowed');
 
 $actions = [
-    'Input Data' => 'input',
+    'Input / Entry' => 'input',
     'Lihat Data' => 'lihat',
     'Perubahan' => 'perubahan',
 ];

@@ -37,4 +37,11 @@
 
 defined('BASEPATH') || exit('No direct script access allowed');
 
-echo view('admin.layouts.partials.sidebar');
+echo view('admin.layouts.partials.sidebar', [
+    'finance_filter_years' => $finance_filter_years ?? [],
+    'finance_filter_year' => $finance_filter_year ?? '',
+    'finance_filter_label' => $finance_filter_label ?? 'Tahun APBDes',
+    'finance_filter_type' => $finance_filter_type ?? 'apbdes',
+    'finance_filter_query' => $finance_filter_query ?? [],
+    'finance_filter_action' => $finance_filter_action ?? current_url(),
+]);

@@ -52,6 +52,32 @@
                     <span class="pull-right-container"><i class='fa fa-angle-left pull-right'></i></span>
                 </a>
                 <ul class="treeview-menu <?= $financeMenuOpen ? 'menu-open' : jecho($modul_ini, $mod['slug'], 'active') ?>">
+                    <?php if ($mod['slug'] === 'keuangan' && $finance_filter_years !== []): ?>
+                    <?php
+                    $financeFilterQuery = $finance_filter_query;
+                    unset($financeFilterQuery['tahun_anggaran']);
+                    if ($finance_filter_type !== 'rab') {
+                        unset($financeFilterQuery['tahun']);
+                    }
+                    ?>
+                    <li class="finance-sidebar-year">
+                        <form method="get" action="<?= html_escape($finance_filter_action) ?>">
+                            <?php foreach ($financeFilterQuery as $key => $value): ?>
+                            <?php if (is_scalar($value)): ?>
+                            <input type="hidden" name="<?= html_escape((string) $key) ?>" value="<?= html_escape((string) $value) ?>">
+                            <?php endif ?>
+                            <?php endforeach ?>
+                            <label for="finance-sidebar-year"><?= html_escape($finance_filter_label) ?></label>
+                            <select class="form-control input-sm" id="finance-sidebar-year" name="tahun_anggaran" onchange="this.form.submit()">
+                                <?php foreach ($finance_filter_years as $year): ?>
+                                <option value="<?= html_escape((string) $year) ?>" <?= (string) $year === $finance_filter_year ? 'selected' : '' ?>>
+                                    <?= html_escape((string) $year) ?>
+                                </option>
+                                <?php endforeach ?>
+                            </select>
+                        </form>
+                    </li>
+                    <?php endif ?>
 
                     <?php foreach ($mod['childrens'] as $submod): ?>
                     <?php if ($mod['slug'] === 'keuangan' && count($submod['childrens'] ?? []) > 0): ?>
@@ -109,3 +135,18 @@
 
     </section>
 </aside>
+<style>
+    .finance-sidebar-year {
+        padding: 10px 15px 10px 25px;
+    }
+
+    .finance-sidebar-year label {
+        color: #b8c7ce;
+        font-weight: 400;
+        margin-bottom: 5px;
+    }
+
+    .finance-sidebar-year select {
+        width: 100%;
+    }
+</style>

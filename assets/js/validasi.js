@@ -322,10 +322,8 @@ $(document).ready(function() {
 		"Maksimal 150 karakter. Silahkan menyingkat url menggunakan <a href='https://s.id/' target='_blank'>s.id</a> atau atau sejenisnya.",
 	);
 
-	$('.bilangan_titik').each(function() {
-		$(this).rules("add", {
-			bilangan_titik: true,
-		});
+	jQuery.validator.addClassRules("bilangan_titik", {
+		bilangan_titik: true,
 	});
 
 	jQuery.validator.addMethod("bilangan_spasi", function(value, element) {
@@ -333,11 +331,8 @@ $(document).ready(function() {
 		return this.optional(element) || valid;
 	}, "Hanya boleh berisi karakter numerik dan spasi");
 
-	$('.bilangan_spasi').each(function() {
-		$(this).rules("add",
-			{
-				bilangan_spasi: true,
-			});
+	jQuery.validator.addClassRules("bilangan_spasi", {
+		bilangan_spasi: true,
 	});
 
 	// Ketentuan kata sandi sesuai US National Institute of Standards and Technology (NIST)

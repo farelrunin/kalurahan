@@ -26,12 +26,12 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 
 <div class="content-wrapper">
 	<section class="content-header">
-		<h1>Anggaran <?= html_escape($page_title) ?></h1>
+		<h1><?= $initial_mode === 'input' ? 'Input / Entry ' : 'Anggaran ' ?><?= html_escape($page_title) ?></h1>
 		<ol class="breadcrumb">
 			<li><a href="<?= site_url('beranda') ?>"><i class="fa fa-home"></i> Beranda</a></li>
 			<li>Anggaran</li>
 			<li><a href="<?= site_url('keuangan_manual/anggaran_rab/' . strtolower($page_title)) ?>"><?= html_escape($page_title) ?></a></li>
-			<li class="active"><?= $initial_mode === 'input' ? 'Input Data' : ($initial_mode === 'lihat' ? 'Lihat Data' : ($initial_mode === 'perubahan' ? 'Perubahan' : 'Rincian e-RAB')) ?></li>
+			<li class="active"><?= $initial_mode === 'input' ? 'Input / Entry' : ($initial_mode === 'lihat' ? 'Lihat Data' : ($initial_mode === 'perubahan' ? 'Perubahan' : 'Rincian e-RAB')) ?></li>
 		</ol>
 	</section>
 
@@ -44,7 +44,8 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 			data-csrf-name="<?= html_escape($csrf_name) ?>"
 			data-csrf-value="<?= html_escape($csrf_value) ?>"
 			data-can-edit="<?= $can_edit && $initial_mode !== 'lihat' ? '1' : '0' ?>"
-			data-can-delete="<?= $can_delete && $initial_mode !== 'lihat' ? '1' : '0' ?>">
+			data-can-delete="<?= $can_delete && $initial_mode !== 'lihat' ? '1' : '0' ?>"
+			data-finance-year="<?= html_escape($finance_filter_year) ?>">
 			<div class="box-header with-border" <?= ($income_input || $expense_input || $finance_input) ? 'style="display:none;"' : '' ?>>
 				<a href="<?= site_url('keuangan_manual/manual_apbdes') ?>" class="btn btn-default btn-sm">
 					<i class="fa fa-arrow-left"></i> Rekap Manual
@@ -374,7 +375,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 							<div class="col-sm-3">
 								<div class="form-group">
 									<label for="rab-tahun">Tahun Anggaran</label>
-									<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) date('Y')) ?>" required>
+									<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) $finance_filter_year) ?>" required>
 								</div>
 							</div>
 							<div class="col-sm-3">
@@ -416,7 +417,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 						<div class="row">
 							<div class="col-md-3 form-group">
 								<label for="rab-tahun">Tahun Anggaran</label>
-								<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) date('Y')) ?>" required>
+								<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) $finance_filter_year) ?>" required>
 							</div>
 							<div class="col-md-3 form-group">
 								<label for="rab-tahap">Jenis Anggaran</label>
@@ -447,7 +448,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 							<div class="panel-body">
 								<div class="form-group">
 									<label>Tahun Anggaran</label>
-									<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) date('Y')) ?>" required>
+									<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) $finance_filter_year) ?>" required>
 								</div>
 								<div class="form-group">
 									<label>Pilih Anggaran</label><br>
@@ -546,7 +547,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 						<div class="col-md-3 col-sm-6">
 							<div class="form-group">
 								<label for="rab-tahun">Tahun Anggaran</label>
-								<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) date('Y')) ?>" required>
+								<input type="number" min="2000" max="2199" class="form-control" id="rab-tahun" value="<?= html_escape((string) $finance_filter_year) ?>" required>
 							</div>
 						</div>
 						<div class="col-md-3 col-sm-6">
