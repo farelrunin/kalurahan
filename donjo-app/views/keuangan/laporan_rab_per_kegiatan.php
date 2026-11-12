@@ -4,6 +4,8 @@ defined('BASEPATH') || exit('No direct script access allowed');
 
 $filters = $filters ?? ['tahun' => '', 'tahap' => 'murni', 'bidang' => '', 'sub_bidang' => '', 'kegiatan' => ''];
 $references = $references ?? ['bidang' => [], 'sub_bidang' => [], 'kegiatan' => []];
+$referenceLabels = $reference_labels ?? ['bidang' => [], 'sub_bidang' => [], 'kegiatan' => []];
+$signatories = $signatories ?? [];
 $table_rows = $table_rows ?? [];
 $reportVolume = static fn ($value): string => number_format((float) $value, 2, '.', '');
 $reportMoney = static fn ($value): string => number_format((float) $value, 2, '.', ',');
@@ -34,6 +36,9 @@ foreach ($references['kegiatan'] as $activity) {
 	.report-primary .report-subtotal { font-weight: 700; }
 	.report-primary .report-spacer td { height: 10px; padding: 0 !important; border: 0; }
 	.report-primary .report-header th { background: #f5f5f5; }
+	.report-signatures { width: 100%; margin-top: 24px; border-collapse: collapse; }
+	.report-signatures td { width: 33.333%; padding: 4px 8px; text-align: center; vertical-align: top; }
+	.report-signatures .signature-space { height: 72px; }
 	@media print {
 		.no-print, .content-header .breadcrumb, .main-footer, .main-sidebar { display: none !important; }
 		.content-wrapper { margin-left: 0 !important; }
@@ -85,7 +90,7 @@ foreach ($references['kegiatan'] as $activity) {
 									<option value="">Pilih Bidang</option>
 									<?php foreach ($references['bidang'] as $field): ?>
 										<option value="<?= html_escape((string) $field['kode']) ?>" <?= $filters['bidang'] === $field['kode'] ? 'selected' : '' ?>>
-											<?= html_escape($field['kode'] . ' ' . $field['nama']) ?>
+											<?= html_escape($referenceLabels['bidang'][(string) $field['kode']] ?? ($field['kode'] . ' ' . $field['nama'])) ?>
 										</option>
 									<?php endforeach; ?>
 								</select>
@@ -102,7 +107,7 @@ foreach ($references['kegiatan'] as $activity) {
 											data-bidang="<?= html_escape($subFieldFieldCodesByCode[(string) $subField['kode']] ?? '') ?>"
 											<?= $filters['sub_bidang'] === $subField['kode'] ? 'selected' : '' ?>
 										>
-											<?= html_escape($subField['kode'] . ' ' . $subField['nama']) ?>
+											<?= html_escape($referenceLabels['sub_bidang'][(string) $subField['kode']] ?? ($subField['kode'] . ' ' . $subField['nama'])) ?>
 										</option>
 									<?php endforeach; ?>
 								</select>
@@ -119,7 +124,7 @@ foreach ($references['kegiatan'] as $activity) {
 											data-sub-bidang="<?= html_escape($activitySubFieldCodesByCode[(string) $activity['kode']] ?? '') ?>"
 											<?= $filters['kegiatan'] === $activity['kode'] ? 'selected' : '' ?>
 										>
-											<?= html_escape($activity['kode'] . ' ' . $activity['nama']) ?>
+											<?= html_escape($referenceLabels['kegiatan'][(string) $activity['kode']] ?? ($activity['kode'] . ' ' . $activity['nama'])) ?>
 										</option>
 									<?php endforeach; ?>
 								</select>
@@ -193,6 +198,31 @@ foreach ($references['kegiatan'] as $activity) {
 							</tbody>
 						</table>
 					</div>
+					<?php if (! empty($signatory_warning)): ?>
+						<div class="alert alert-warning no-print">
+							Data penandatangan atau Pelaksana Kegiatan Anggaran belum lengkap. Periksa data pamong dan PKA pada kegiatan ini.
+						</div>
+					<?php endif; ?>
+					<table class="report-signatures">
+						<tbody>
+							<tr>
+								<td>Disetujui,</td>
+								<td>Telah Diverifikasi,</td>
+								<td><?= html_escape($signatories['village'] ?? '') ?>, <?= html_escape($signatories['month_year'] ?? '') ?></td>
+							</tr>
+							<tr>
+								<td><?= html_escape(strtoupper(trim(($signatories['approval']['pamong_jabatan'] ?? '') . ' ' . ($signatories['village'] ?? '')))) ?></td>
+								<td><?= html_escape(strtoupper(trim(($signatories['verification']['pamong_jabatan'] ?? '') . ' ' . ($signatories['village'] ?? '')))) ?></td>
+								<td>Pelaksana Kegiatan Anggaran,</td>
+							</tr>
+							<tr><td class="signature-space"></td><td class="signature-space"></td><td class="signature-space"></td></tr>
+							<tr>
+								<td><u><?= html_escape($signatories['approval']['nama'] ?? '') ?></u></td>
+								<td><u><?= html_escape($signatories['verification']['nama'] ?? '') ?></u></td>
+								<td><u><?= html_escape($signatories['pka'] ?? '') ?></u></td>
+							</tr>
+						</tbody>
+					</table>
 				<?php else: ?>
 					<div class="alert alert-info">
 						Pilih Bidang, Sub Bidang, dan Kegiatan untuk menampilkan RAB.

@@ -129,8 +129,10 @@ class Keuangan_manual extends Admin_Controller
 
     public function grafik_manual($jenis): void
     {
-        isCan('b', 'laporan-manual');
-        $this->sub_modul_ini = 'laporan-manual';
+        if (! can('b', 'laporan-manual') && ! can('b', 'laporan-rab')) {
+            isCan('b', 'laporan-manual');
+        }
+        $this->sub_modul_ini = can('b', 'laporan-manual') ? 'laporan-manual' : 'laporan-rab';
 
         $yearFilter = $this->finance_rab_year_filter_data();
         $this->load->model('keuangan_grafik_manual_model');
@@ -214,6 +216,15 @@ class Keuangan_manual extends Admin_Controller
         $mode = $this->input->get('mode', true);
         $data['initial_mode'] = in_array($mode, ['input', 'lihat', 'perubahan'], true) ? $mode : '';
         $data['references'] = $this->keuangan_manual_model->list_rab_referensi();
+        $data['sub_bidang_labels'] = $pos === 'belanja'
+            ? $this->list_rab_sub_bidang_labels($data['references']['sub_bidang'])
+            : [];
+        $data['income_account_hierarchy'] = $pos === 'pendapatan'
+            ? $this->keuangan_manual_model->list_laporan_rekening_hierarki()
+            : [];
+        $data['account_hierarchy'] = in_array($pos, ['belanja', 'pembiayaan'], true)
+            ? $this->keuangan_manual_model->list_laporan_rekening_hierarki()
+            : [];
         $data['years']      = $this->keuangan_manual_model->list_tahun_rab();
         if ($data['years'] === []) {
             $data['years'] = [(string) ((int) date('Y') + 1)];
@@ -262,6 +273,11 @@ class Keuangan_manual extends Admin_Controller
             'copy'   => site_url('keuangan_manual/salin_rab_perubahan'),
             'copy_previous_year' => site_url('keuangan_manual/impor_rab_tahun_lalu'),
             'delete' => site_url('keuangan_manual/hapus_rab_manual'),
+            'delete_item' => site_url('keuangan_manual/hapus_rab_item_manual'),
+            'spp' => site_url('keuangan_manual/spp_rab'),
+            'item_receipt' => site_url('keuangan_manual/kuitansi_item_rab'),
+            'print_item_receipt' => site_url('keuangan_manual/cetak_kuitansi_item_rab'),
+            'add_detail' => site_url('keuangan_manual/tambah_rincian_rab_manual'),
         ];
 
         $this->render('keuangan/rincian_rab_manual', $data);
@@ -282,10 +298,26 @@ class Keuangan_manual extends Admin_Controller
                 $filters[$key] = $this->security->xss_clean($value);
             }
         }
+        $includeDetails = $this->input->get('include_details');
+        if (null !== $includeDetails && (! is_scalar($includeDetails) || ! in_array((string) $includeDetails, ['0', '1'], true))) {
+            $this->respond_json(['message' => 'Pilihan rincian tidak valid'], 422);
+
+            return;
+        }
+        $includeDetails = (string) ($includeDetails ?? '0');
 
         $this->ensure_rab_access('b', $filters['pos'] ?? null);
 
-        $this->respond_json($this->keuangan_manual_model->list_rab_manual($filters));
+        if ($includeDetails === '1' && ($filters['pos'] ?? '') === '4.PENDAPATAN') {
+            $rows = $this->keuangan_manual_model->list_rab_pendapatan_dengan_rincian($filters);
+        } elseif ($includeDetails === '1' && ($filters['pos'] ?? '') === '5.BELANJA') {
+            $rows = $this->keuangan_manual_model->list_rab_belanja_dengan_rincian($filters);
+        } elseif ($includeDetails === '1' && ($filters['pos'] ?? '') === '6.PEMBIAYAAN') {
+            $rows = $this->keuangan_manual_model->list_rab_pembiayaan_dengan_rincian($filters);
+        } else {
+            $rows = $this->keuangan_manual_model->list_rab_manual($filters);
+        }
+        $this->respond_json($rows);
     }
 
     public function get_rab_manual($id = null): void
@@ -299,6 +331,94 @@ class Keuangan_manual extends Admin_Controller
 
         $this->ensure_rab_access('b', $data['pos'] ?? null);
         $this->respond_json($data);
+    }
+
+    public function tambah_rincian_rab_manual($id = null): void
+    {
+        $this->ensure_rab_access('b', 'belanja');
+        if (! is_scalar($id) || ! ctype_digit((string) $id) || (int) $id < 1) {
+            show_404();
+
+            return;
+        }
+
+        $rabId = (int) $id;
+        $rab = $this->keuangan_manual_model->get_rab_manual($rabId);
+        if ($rab === null || ($rab['pos'] ?? '') !== '5.BELANJA') {
+            show_404();
+
+            return;
+        }
+        $this->sub_modul_ini = 'anggaran-belanja';
+
+        if ($this->input->method(true) === 'POST') {
+            $this->ensure_rab_access('u', 'belanja');
+            $post = $this->input->post();
+            if (! is_array($post) || ! is_string($post['rincian'] ?? null)) {
+                $this->respond_json(['message' => 'Data rincian tidak valid'], 422);
+
+                return;
+            }
+            try {
+                $rincian = json_decode($post['rincian'], true, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                $this->respond_json(['message' => 'Format rincian item tidak valid'], 422);
+
+                return;
+            }
+            if (! is_array($rincian) || ! array_is_list($rincian) || count($rincian) > 500) {
+                $this->respond_json(['message' => 'Rincian item maksimal 500 baris'], 422);
+
+                return;
+            }
+            foreach ($rincian as &$item) {
+                if (! is_array($item)) {
+                    $this->respond_json(['message' => 'Format baris rincian tidak valid'], 422);
+
+                    return;
+                }
+                foreach (['keterangan', 'volume', 'satuan', 'harga_satuan', 'sumber_dana'] as $field) {
+                    if (! is_scalar($item[$field] ?? null)) {
+                        $this->respond_json(['message' => 'Format baris rincian tidak valid'], 422);
+
+                        return;
+                    }
+                }
+                $item['keterangan'] = $this->security->xss_clean(trim((string) $item['keterangan']));
+                $item['satuan'] = $this->security->xss_clean(trim((string) $item['satuan']));
+                $item['sumber_dana'] = $this->security->xss_clean(trim((string) $item['sumber_dana']));
+            }
+            unset($item);
+
+            try {
+                $savedId = $this->keuangan_manual_model->tambah_rincian_rab_manual($rabId, $rincian);
+            } catch (InvalidArgumentException $error) {
+                $this->respond_json(['message' => $error->getMessage()], 422);
+
+                return;
+            }
+            if ($savedId === false) {
+                $this->respond_json(['message' => 'Gagal menyimpan rincian item anggaran. Periksa log aplikasi.'], 422);
+
+                return;
+            }
+
+            $this->respond_json([
+                'message' => 'Rincian anggaran berhasil ditambahkan.',
+                'redirect_url' => site_url('keuangan_manual/rincian_rab/belanja?mode=lihat&tahun_anggaran=' . rawurlencode((string) $rab['tahun'])),
+            ]);
+
+            return;
+        }
+
+        $this->ensure_rab_access('u', 'belanja');
+        $this->render('keuangan/tambah_rincian_rab_manual', [
+            'rab' => $rab,
+            'references' => $this->keuangan_manual_model->list_rab_referensi(),
+            'api' => ['save' => site_url('keuangan_manual/tambah_rincian_rab_manual/' . $rabId)],
+            'csrf_name' => $this->security->get_csrf_token_name(),
+            'csrf_value' => $this->security->get_csrf_hash(),
+        ]);
     }
 
     public function simpan_rab_manual(): void
@@ -350,6 +470,7 @@ class Keuangan_manual extends Admin_Controller
             static fn (array $tax): string => (string) $tax['id'],
             $references['pajak']
         ), true);
+        $taxRatesById = array_column($references['pajak'], 'persentase', 'id');
         $find = static function (array $rows, string $key, string $value): ?array {
             foreach ($rows as $row) {
                 if ((string) ($row[$key] ?? '') === $value) {
@@ -449,23 +570,45 @@ class Keuangan_manual extends Admin_Controller
                 $unit = trim((string) ($item['satuan'] ?? ''));
                 $fund = trim((string) ($item['sumber_dana'] ?? ''));
                 $itemId = trim((string) ($item['id'] ?? ''));
+                $manualTaxValue = $item['pajak_manual'] ?? '0';
+                if (! is_scalar($manualTaxValue) || ! in_array((string) $manualTaxValue, ['0', '1'], true)) {
+                    throw new InvalidArgumentException('Mode pemilihan pajak tidak valid.');
+                }
+                $manualTaxSelection = (string) $manualTaxValue === '1';
                 $taxIds = $item['pajak_ids'] ?? [];
                 if (! is_array($taxIds) || ! array_is_list($taxIds) || count($taxIds) > 50) {
                     throw new InvalidArgumentException('Daftar pilihan pajak tidak valid.');
                 }
                 $normalizedTaxIds = [];
-                foreach ($taxIds as $taxId) {
-                    if (! is_scalar($taxId) || ! ctype_digit((string) $taxId)
-                        || ! isset($allowedTaxIds[(string) $taxId])
-                        || in_array((int) $taxId, $normalizedTaxIds, true)) {
-                        throw new InvalidArgumentException('Jenis pajak tidak ditemukan, tidak aktif, atau dipilih lebih dari sekali.');
+                if ($manualTaxSelection) {
+                    foreach ($taxIds as $taxId) {
+                        if (! is_scalar($taxId) || ! ctype_digit((string) $taxId)
+                            || ! isset($allowedTaxIds[(string) $taxId])
+                            || in_array((int) $taxId, $normalizedTaxIds, true)) {
+                            throw new InvalidArgumentException('Jenis pajak tidak ditemukan, tidak aktif, atau dipilih lebih dari sekali.');
+                        }
+                        $normalizedTaxIds[] = (int) $taxId;
                     }
-                    $normalizedTaxIds[] = (int) $taxId;
+                } elseif ($isBelanja) {
+                    $gross = round((float) $volume * (float) $price, 2, PHP_ROUND_HALF_UP);
+                    foreach ($references['pajak'] as $tax) {
+                        $threshold = $tax['batas_otomatis'] ?? null;
+                        if ($threshold !== null && $gross > (float) $threshold) {
+                            $normalizedTaxIds[] = (int) $tax['id'];
+                        }
+                    }
+                }
+                $totalTaxRate = array_sum(array_map(
+                    static fn (int $taxId): float => (float) ($taxRatesById[$taxId] ?? 0),
+                    $normalizedTaxIds
+                ));
+                if ($totalTaxRate > 100) {
+                    throw new InvalidArgumentException('Jumlah tarif pajak dan potongan per item tidak boleh melebihi 100%.');
                 }
                 if ($description === '' || mb_strlen($description) > 255 || mb_strlen($unit) > 50
                     || ! in_array($fund, $allowedFunds, true)
                     || ($itemId !== '' && ! ctype_digit($itemId))
-                    || (! $isBelanja && $normalizedTaxIds !== [])) {
+                    || (! $isBelanja && ($taxIds !== [] || $manualTaxSelection))) {
                     throw new InvalidArgumentException('Lengkapi semua kolom rincian dengan nilai yang valid.');
                 }
                 $items[] = [
@@ -476,6 +619,7 @@ class Keuangan_manual extends Admin_Controller
                     'harga_satuan' => $price,
                     'sumber_dana' => $fund,
                     'pajak_ids' => $normalizedTaxIds,
+                    'pajak_manual' => $manualTaxSelection,
                 ];
             }
             if ($items === [] || count($items) > 500) {
@@ -646,12 +790,38 @@ class Keuangan_manual extends Admin_Controller
         $this->ensure_rab_access('h', $record['pos'] ?? null);
 
         if (! $this->keuangan_manual_model->hapus_rab_manual((int) $id)) {
-            $this->respond_json(['message' => 'Data tidak ditemukan, gagal dihapus, atau masih menjadi sumber anggaran perubahan'], 422);
+            $this->respond_json(['message' => 'Data tidak ditemukan, gagal dihapus, sudah digunakan pada SPP/kuitansi, atau masih menjadi sumber anggaran perubahan'], 422);
 
             return;
         }
 
         $this->respond_json(['message' => 'Rincian anggaran berhasil dihapus']);
+    }
+
+    public function hapus_rab_item_manual($rabId = null, $itemId = null): void
+    {
+        if (! is_scalar($rabId) || ! ctype_digit((string) $rabId)
+            || ! is_scalar($itemId) || ! ctype_digit((string) $itemId)) {
+            $this->respond_json(['message' => 'ID anggaran atau rincian tidak valid'], 422);
+
+            return;
+        }
+
+        $record = $this->keuangan_manual_model->get_rab_manual((int) $rabId);
+        if ($record === null) {
+            $this->respond_json(['message' => 'Anggaran tidak ditemukan'], 404);
+
+            return;
+        }
+        $this->ensure_rab_access('h', $record['pos'] ?? null);
+
+        if (! $this->keuangan_manual_model->hapus_rab_item_manual((int) $rabId, (int) $itemId)) {
+            $this->respond_json(['message' => 'Rincian tidak ditemukan, telah digunakan pada SPP/kuitansi, atau menjadi sumber anggaran perubahan'], 422);
+
+            return;
+        }
+
+        $this->respond_json(['message' => 'Rincian item berhasil dihapus']);
     }
 
     public function spp_rab(): void
@@ -694,12 +864,12 @@ class Keuangan_manual extends Admin_Controller
                     'jenis_spp' => is_scalar($post['jenis_spp'] ?? null) ? trim((string) $post['jenis_spp']) : '',
                     'penerima' => $this->security->xss_clean(is_scalar($post['penerima'] ?? null) ? trim((string) $post['penerima']) : ''),
                     'alamat' => $this->security->xss_clean(is_scalar($post['alamat'] ?? null) ? trim((string) $post['alamat']) : ''),
+                    'nik' => $this->security->xss_clean(is_scalar($post['nik'] ?? null) ? trim((string) $post['nik']) : ''),
+                    'nomor_rekening_bpd' => $this->security->xss_clean(is_scalar($post['nomor_rekening_bpd'] ?? null) ? trim((string) $post['nomor_rekening_bpd']) : ''),
+                    'nama_rekening_bpd' => $this->security->xss_clean(is_scalar($post['nama_rekening_bpd'] ?? null) ? trim((string) $post['nama_rekening_bpd']) : ''),
                     'npwp' => $this->security->xss_clean(is_scalar($post['npwp'] ?? null) ? trim((string) $post['npwp']) : ''),
                     'keperluan' => $this->security->xss_clean(is_scalar($post['keperluan'] ?? null) ? trim((string) $post['keperluan']) : ''),
                     'status' => is_scalar($post['status'] ?? null) ? trim((string) $post['status']) : 'draft',
-                    'nomor_kuitansi' => $this->security->xss_clean(is_scalar($post['nomor_kuitansi'] ?? null) ? trim((string) $post['nomor_kuitansi']) : ''),
-                    'tanggal_bayar' => is_scalar($post['tanggal_bayar'] ?? null) ? trim((string) $post['tanggal_bayar']) : '',
-                    'jumlah_dibayar' => is_scalar($post['jumlah_dibayar'] ?? null) ? trim((string) $post['jumlah_dibayar']) : '0',
                 ];
                 try {
                     $savedId = ctype_digit($idValue)
@@ -741,18 +911,86 @@ class Keuangan_manual extends Admin_Controller
 
             return;
         }
+        $preselectedItemValue = $this->input->get('rab_item_id', true);
+        $preselectedItemId = 0;
+        if ($preselectedItemValue !== null) {
+            if (! is_scalar($preselectedItemValue) || ! ctype_digit((string) $preselectedItemValue)) {
+                show_404();
+
+                return;
+            }
+            $preselectedItemId = (int) $preselectedItemValue;
+        }
         if ($spp !== null) {
             $year = (int) $spp['tahun'];
             $stage = (string) $spp['tahap'];
         }
 
+        $allSources = $this->keuangan_manual_model->list_rab_spp_sources($year, $stage, $editId);
+        if ($preselectedItemId > 0 && ($spp !== null || ! array_filter($allSources, static function (array $source) use ($preselectedItemId): bool {
+            return (int) $source['rab_item_id'] === $preselectedItemId && (float) $source['tersedia'] > 0;
+        }))) {
+            show_404();
+
+            return;
+        }
+
+        $activityOptions = [];
+        foreach ($allSources as $source) {
+            $activityKey = (string) $source['sub_kegiatan_id'];
+            if (! isset($activityOptions[$activityKey])) {
+                $activityOptions[$activityKey] = [
+                    'id' => $activityKey,
+                    'label' => trim((string) $source['bidang_kode'] . ' / ' . (string) $source['sub_bidang'] . ' ' . (string) $source['kegiatan']),
+                ];
+            }
+        }
+        $requestedActivity = $this->input->get('sub_kegiatan', true);
+        $selectedActivity = is_scalar($requestedActivity) ? trim((string) $requestedActivity) : '';
+        if ($preselectedItemId > 0) {
+            foreach ($allSources as $source) {
+                if ((int) $source['rab_item_id'] === $preselectedItemId) {
+                    if ($selectedActivity !== '' && $selectedActivity !== $source['sub_kegiatan_id']) {
+                        show_404();
+
+                        return;
+                    }
+                    $selectedActivity = (string) $source['sub_kegiatan_id'];
+                    break;
+                }
+            }
+        }
+        $mixedSpp = false;
+        if ($spp !== null) {
+            $sppActivities = array_values(array_unique(array_column($spp['rincian'], 'sub_kegiatan_id')));
+            if (count($sppActivities) === 1) {
+                $selectedActivity = (string) $sppActivities[0];
+            } elseif (count($sppActivities) > 1) {
+                $mixedSpp = true;
+                $selectedActivity = '';
+            }
+        }
+        if ($selectedActivity !== '' && ! isset($activityOptions[$selectedActivity])) {
+            show_404();
+
+            return;
+        }
+        $sources = $selectedActivity === ''
+            ? $allSources
+            : array_values(array_filter($allSources, static fn (array $source): bool => $source['sub_kegiatan_id'] === $selectedActivity));
+
         $data = [
             'year' => $year,
             'stage' => $stage,
             'spps' => $this->keuangan_manual_model->list_rab_spp($year, $stage),
-            'sources' => $this->keuangan_manual_model->list_rab_spp_sources($year, $stage, $editId),
+            'sources' => $sources,
+            'activity_options' => array_values($activityOptions),
+            'selected_sub_kegiatan' => $selectedActivity,
             'spp' => $spp,
+            'mixed_spp' => $mixedSpp,
+            'preselected_item_id' => $preselectedItemId,
             'show_form' => $spp !== null || $this->input->get('baru', true) === '1',
+            'show_spp_form' => $spp !== null ? ! $mixedSpp : $this->input->get('baru', true) === '1' && $selectedActivity !== '',
             'can_edit' => can('u', 'anggaran-belanja') || can('u', 'rincian-rab'),
             'can_delete' => can('h', 'anggaran-belanja') || can('h', 'rincian-rab'),
         ];
@@ -761,6 +999,62 @@ class Keuangan_manual extends Admin_Controller
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_value'] = $this->security->get_csrf_hash();
         $this->render('keuangan/spp_rab_manual', $data);
+    }
+
+    public function kuitansi_rab($id = null): void
+    {
+        $this->ensure_rab_access('b', 'belanja');
+        $this->sub_modul_ini = 'anggaran-belanja';
+
+        $idValue = is_scalar($id) ? (string) $id : '';
+        $sppId = ctype_digit($idValue) ? (int) $idValue : 0;
+        $spp = $sppId > 0 ? $this->keuangan_manual_model->get_rab_spp($sppId) : null;
+        if ($spp === null || $spp['status'] !== 'dibayar') {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method(true) === 'POST') {
+            $this->ensure_rab_access('u', 'belanja');
+            $postedReceipts = $this->input->post('kuitansi');
+            $receipts = [];
+            if (is_array($postedReceipts)) {
+                foreach ($postedReceipts as $itemId => $receipt) {
+                    if (! is_array($receipt)) {
+                        $receipts[$itemId] = $receipt;
+                        continue;
+                    }
+                    $receipts[$itemId] = [
+                        'nomor_kuitansi' => $this->security->xss_clean(is_scalar($receipt['nomor_kuitansi'] ?? null) ? trim((string) $receipt['nomor_kuitansi']) : ''),
+                        'penerima' => $this->security->xss_clean(is_scalar($receipt['penerima'] ?? null) ? trim((string) $receipt['penerima']) : ''),
+                        'sebagai_pembayaran' => $this->security->xss_clean(is_scalar($receipt['sebagai_pembayaran'] ?? null) ? trim((string) $receipt['sebagai_pembayaran']) : ''),
+                        'tanggal_bayar' => is_scalar($receipt['tanggal_bayar'] ?? null) ? trim((string) $receipt['tanggal_bayar']) : '',
+                        'jumlah_dibayar' => is_scalar($receipt['jumlah_dibayar'] ?? null) ? trim((string) $receipt['jumlah_dibayar']) : '',
+                    ];
+                }
+            }
+
+            try {
+                if (! $this->keuangan_manual_model->simpan_rab_kuitansi($sppId, $receipts)) {
+                    session_error('Kuitansi tidak tersimpan. Periksa data dan log aplikasi.');
+                } else {
+                    session_success('Kuitansi sub-belanja berhasil disimpan.');
+                }
+            } catch (InvalidArgumentException $error) {
+                session_error($error->getMessage());
+            }
+            redirect('keuangan_manual/kuitansi_rab/' . $sppId);
+
+            return;
+        }
+
+        $this->render('keuangan/kuitansi_rab_manual', [
+            'spp' => $spp,
+            'csrf_name' => $this->security->get_csrf_token_name(),
+            'csrf_value' => $this->security->get_csrf_hash(),
+            'can_edit' => can('u', 'anggaran-belanja') || can('u', 'rincian-rab'),
+        ]);
     }
 
     public function cetak_spp_rab($id = null): void
@@ -781,7 +1075,7 @@ class Keuangan_manual extends Admin_Controller
     {
         $this->ensure_rab_access('b', 'belanja');
         $spp = $this->keuangan_manual_model->get_rab_spp((int) $id);
-        if ($spp === null || $spp['status'] !== 'dibayar' || empty($spp['kuitansi_id'])) {
+        if ($spp === null || $spp['status'] !== 'dibayar' || empty($spp['kuitansi'])) {
             show_404();
 
             return;
@@ -789,6 +1083,65 @@ class Keuangan_manual extends Admin_Controller
 
         $this->sub_modul_ini = 'anggaran-belanja';
         $this->render('keuangan/cetak_kuitansi_rab', ['spp' => $spp]);
+    }
+
+    public function kuitansi_item_rab($id = null): void
+    {
+        $this->ensure_rab_access('b', 'belanja');
+        $idValue = is_scalar($id) ? (string) $id : '';
+        $itemId = ctype_digit($idValue) ? (int) $idValue : 0;
+        $record = $itemId > 0 ? $this->keuangan_manual_model->get_rab_item_kuitansi($itemId) : null;
+        if ($record === null) {
+            show_404();
+
+            return;
+        }
+
+        if ($this->input->method(true) === 'POST') {
+            $this->ensure_rab_access('u', 'belanja');
+            $post = $this->input->post();
+            $receipt = [
+                'nomor_kuitansi' => $this->security->xss_clean(is_scalar($post['nomor_kuitansi'] ?? null) ? trim((string) $post['nomor_kuitansi']) : ''),
+                'penerima' => $this->security->xss_clean(is_scalar($post['penerima'] ?? null) ? trim((string) $post['penerima']) : ''),
+                'sebagai_pembayaran' => $this->security->xss_clean(is_scalar($post['sebagai_pembayaran'] ?? null) ? trim((string) $post['sebagai_pembayaran']) : ''),
+            ];
+            try {
+                if ($this->keuangan_manual_model->simpan_rab_item_kuitansi($itemId, $receipt) === false) {
+                    session_error('Kuitansi tidak tersimpan. Periksa data dan log aplikasi.');
+                } else {
+                    session_success('Kuitansi rincian belanja berhasil disimpan.');
+                }
+            } catch (InvalidArgumentException $error) {
+                session_error($error->getMessage());
+            }
+            redirect('keuangan_manual/kuitansi_item_rab/' . $itemId);
+
+            return;
+        }
+
+        $this->sub_modul_ini = 'anggaran-belanja';
+        $this->render('keuangan/kuitansi_item_rab_manual', [
+            'record' => $record,
+            'can_edit' => can('u', 'anggaran-belanja') || can('u', 'rincian-rab'),
+            'csrf_name' => $this->security->get_csrf_token_name(),
+            'csrf_value' => $this->security->get_csrf_hash(),
+        ]);
+    }
+
+    public function cetak_kuitansi_item_rab($id = null): void
+    {
+        $this->ensure_rab_access('b', 'belanja');
+        $idValue = is_scalar($id) ? (string) $id : '';
+        $itemId = ctype_digit($idValue) ? (int) $idValue : 0;
+        $record = $itemId > 0 ? $this->keuangan_manual_model->get_rab_item_kuitansi($itemId) : null;
+        if ($record === null || empty($record['item']['kuitansi'])) {
+            show_404();
+
+            return;
+        }
+
+        $this->sub_modul_ini = 'anggaran-belanja';
+        $this->render('keuangan/cetak_kuitansi_item_rab', ['record' => $record]);
     }
 
     public function parameter_rab(): void
@@ -937,13 +1290,14 @@ class Keuangan_manual extends Admin_Controller
                     'kode' => $this->security->xss_clean($value('kode')),
                     'nama' => $this->security->xss_clean($value('nama')),
                     'persentase' => $value('persentase'),
+                    'batas_otomatis' => $value('batas_otomatis'),
                     'aktif' => $value('aktif') === '1' ? 1 : 0,
                 ];
                 $id = $idValue !== '' && ctype_digit($idValue)
                     ? $this->keuangan_manual_model->simpan_rab_pajak($data, (int) $idValue)
                     : ($idValue === '' ? $this->keuangan_manual_model->simpan_rab_pajak($data) : false);
                 if ($id === false) {
-                    session_error('Pajak tidak tersimpan. Periksa kode, nama, tarif (0–100%), kode unik, dan status aktif jika pajak sudah digunakan.');
+                    session_error('Pajak tidak tersimpan. Periksa kode, nama, tarif, ambang otomatis, kode unik, dan status aktif jika pajak sudah digunakan.');
                 } else {
                     session_success();
                 }
@@ -1307,7 +1661,9 @@ class Keuangan_manual extends Admin_Controller
         $reportKey = is_scalar($get['laporan'] ?? null) ? (string) $get['laporan'] : 'pendapatan';
         $stage = is_scalar($get['tahap'] ?? null) ? (string) $get['tahap'] : '';
         if ($reportKey === 'belanja_per_kegiatan') {
+            $this->load->model('pamong_model');
             $references = $this->keuangan_manual_model->list_rab_referensi();
+            $referenceLabels = ['bidang' => [], 'sub_bidang' => [], 'kegiatan' => []];
             $fieldCode = is_scalar($get['bidang'] ?? null) ? trim((string) $get['bidang']) : '';
             $subFieldCode = is_scalar($get['sub_bidang'] ?? null) ? trim((string) $get['sub_bidang']) : '';
             $activityCode = is_scalar($get['kegiatan'] ?? null) ? trim((string) $get['kegiatan']) : '';
@@ -1315,6 +1671,41 @@ class Keuangan_manual extends Admin_Controller
                 $stage = 'murni';
             }
             $get['tahap'] = $stage;
+            if ((string) ($get['tahun'] ?? '') === '2027' && $stage === 'murni') {
+                $sourceActivitiesByName = [];
+                foreach ($this->load_laporan_belanja_sumber_data()['activities'] ?? [] as $sourceActivity) {
+                    $sourceName = mb_strtolower($this->laporan_normalisasi_teks((string) ($sourceActivity[5] ?? '')), 'UTF-8');
+                    $sourceActivitiesByName[$sourceName] = $sourceActivity;
+                }
+                $subFieldsById = [];
+                foreach ($references['sub_bidang'] as $subField) {
+                    $subFieldsById[(string) $subField['id']] = $subField;
+                }
+                $fieldsById = [];
+                foreach ($references['bidang'] as $field) {
+                    $fieldsById[(string) $field['id']] = $field;
+                }
+                foreach ($references['kegiatan'] as $activity) {
+                    $sourceName = mb_strtolower($this->laporan_normalisasi_teks((string) $activity['nama']), 'UTF-8');
+                    $sourceActivity = $sourceActivitiesByName[$sourceName] ?? null;
+                    if ($sourceActivity === null) {
+                        continue;
+                    }
+                    $referenceLabels['kegiatan'][(string) $activity['kode']] = rtrim((string) ($sourceActivity[4] ?? ''), '.') . '. '
+                        . $this->laporan_normalisasi_teks((string) ($sourceActivity[5] ?? ''));
+                    $subField = $subFieldsById[(string) $activity['parent_id']] ?? null;
+                    if ($subField === null) {
+                        continue;
+                    }
+                    $referenceLabels['sub_bidang'][(string) $subField['kode']] = rtrim((string) ($sourceActivity[2] ?? ''), '.') . '. '
+                        . $this->laporan_normalisasi_teks((string) ($sourceActivity[3] ?? ''));
+                    $field = $fieldsById[(string) $subField['parent_id']] ?? null;
+                    if ($field !== null) {
+                        $referenceLabels['bidang'][(string) $field['kode']] = rtrim((string) ($sourceActivity[0] ?? ''), '.') . '. '
+                            . strtoupper($this->laporan_normalisasi_teks((string) ($sourceActivity[1] ?? '')));
+                    }
+                }
+            }
 
             $selectedField = null;
             foreach ($references['bidang'] as $field) {
@@ -1360,17 +1751,43 @@ class Keuangan_manual extends Admin_Controller
             $data['report_key'] = 'belanja_per_kegiatan';
             $data['report_title'] = 'RAB Per Kegiatan';
             $data['references'] = $references;
+            $data['reference_labels'] = $referenceLabels;
             $data['filters']['sub_bidang'] = $subFieldCode;
             $data['has_report_selection'] = $hasReportSelection;
+            if ($hasReportSelection) {
+                $data['table_rows'] = $this->format_laporan_rab_per_kegiatan($data['table_rows']);
+            }
             $data['finance_filter_years'] = $yearFilter['finance_years'];
             $data['finance_filter_year'] = $yearFilter['finance_year'];
             $data['can_export'] = can('b', 'laporan-rab');
+            $signatories = $this->modal_penandatangan();
+            $approvalId = $signatories['pamong_ketahui']->pamong_id ?? 0;
+            $verificationId = $signatories['pamong_ttd']->pamong_id ?? 0;
+            $pkaName = '';
+            foreach ($data['rows'] ?? [] as $row) {
+                $pkaName = trim((string) ($row['pka'] ?? ''));
+                if ($pkaName !== '') {
+                    break;
+                }
+            }
+            $localizedDate = preg_split('/\s+/', trim(tgl_indo(date('Y m d'))));
+            $data['signatories'] = [
+                'approval' => $approvalId ? $this->pamong_model->get_data($approvalId) : null,
+                'verification' => $verificationId ? $this->pamong_model->get_data($verificationId) : null,
+                'pka' => $pkaName,
+                'village' => (string) ($this->header['desa']['nama_desa'] ?? ''),
+                'month_year' => count($localizedDate) >= 2 ? implode(' ', array_slice($localizedDate, -2)) : '',
+            ];
+            $data['signatory_warning'] = empty($data['signatories']['approval'])
+                || empty($data['signatories']['verification'])
+                || $pkaName === '';
             $data['export_url'] = site_url('keuangan_manual/ekspor_laporan_rab') . '?' . http_build_query([
                 'laporan' => 'belanja',
                 'tahun' => $data['filters']['tahun'],
                 'tahap' => $stage,
                 'bidang' => $fieldCode,
                 'kegiatan' => $activityCode,
+                'per_kegiatan' => '1',
             ]);
 
             $this->render('keuangan/laporan_rab_per_kegiatan', $data);
@@ -1454,6 +1871,9 @@ class Keuangan_manual extends Admin_Controller
                 ->download('laporan-' . $requestedReport . '-2027-murni-' . date('Ymd') . '.xlsx');
         }
         $data = $this->data_laporan_rab(is_array($get) ? $get : []);
+        if (is_scalar($get['per_kegiatan'] ?? null) && (string) $get['per_kegiatan'] === '1') {
+            $data['table_rows'] = $this->format_laporan_rab_per_kegiatan($data['table_rows']);
+        }
         if (in_array($data['report_key'], ['pendapatan', 'belanja', 'pembiayaan'], true)) {
             $rows = [];
             foreach ($data['table_rows'] as $row) {
@@ -1845,6 +2265,48 @@ class Keuangan_manual extends Admin_Controller
         $data['account_names'] = $accountNames;
 
         return $data;
+    }
+
+    private function list_rab_sub_bidang_labels(array $subBidangReferences): array
+    {
+        $referenceCodes = [];
+        foreach ($subBidangReferences as $subBidang) {
+            $referenceCodes[$this->laporan_normalisasi_kode((string) ($subBidang['kode'] ?? ''))] =
+                rtrim((string) ($subBidang['kode'] ?? ''), '.');
+        }
+
+        $labels = [];
+        foreach ($this->load_laporan_belanja_sumber_data()['activities'] ?? [] as $activity) {
+            $sourceCode = $this->laporan_normalisasi_kode((string) ($activity[2] ?? ''));
+            $referenceCode = $referenceCodes[$sourceCode] ?? '';
+            $name = $this->laporan_normalisasi_teks((string) ($activity[3] ?? ''));
+            if ($referenceCode === '' || $name === '') {
+                continue;
+            }
+
+            $labels[$referenceCode] = rtrim((string) $activity[2], '.') . '. ' . $name;
+        }
+
+        return $labels;
+    }
+
+    private function format_laporan_rab_per_kegiatan(array $rows): array
+    {
+        $formatted = [];
+        foreach ($rows as $row) {
+            if (($row['kind'] ?? '') === 'metadata' && ($row['kode'] ?? '') === 'Bidang') {
+                continue;
+            }
+            if (($row['kind'] ?? '') === 'activity_total') {
+                $row['kind'] = 'account';
+                $row['kode'] = '5.';
+                $row['uraian'] = 'BELANJA';
+                $row['level'] = 0;
+            }
+            $formatted[] = $row;
+        }
+
+        return $formatted;
     }
 
     private function build_laporan_rab_detail(array $rows, string $reportKey, array $references): array
@@ -2773,7 +3235,7 @@ class Keuangan_manual extends Admin_Controller
 
     private function is_rab_year_context(): bool
     {
-        return in_array($this->router->fetch_method(), ['anggaran_rab', 'laporan_anggaran_belanja', 'rincian_rab', 'spp_rab'], true);
+        return in_array($this->router->fetch_method(), ['anggaran_rab', 'laporan_anggaran_belanja', 'rincian_rab', 'spp_rab', 'kuitansi_rab', 'kuitansi_item_rab', 'cetak_kuitansi_item_rab'], true);
     }
 
     private function add_finance_year_filter(array &$data): void

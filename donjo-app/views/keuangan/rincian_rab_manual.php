@@ -17,6 +17,7 @@ $income_view = $is_income && $initial_mode === 'lihat';
 $income_change = $is_income && $initial_mode === 'perubahan';
 $expense_input = $is_expense && $initial_mode === 'input';
 $expense_view = $is_expense && $initial_mode === 'lihat';
+$expense_form = $expense_input || $expense_view;
 $expense_change = $is_expense && $initial_mode === 'perubahan';
 $finance_input = $is_finance && $initial_mode === 'input';
 $finance_view = $is_finance && $initial_mode === 'lihat';
@@ -45,10 +46,14 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 			data-initial-mode="<?= html_escape($initial_mode) ?>"
 			data-api="<?= html_escape(json_encode($api, $json_flags)) ?>"
 			data-references="<?= html_escape(json_encode($references, $json_flags)) ?>"
+			data-sub-bidang-labels="<?= html_escape(json_encode($sub_bidang_labels, $json_flags)) ?>"
+			data-income-account-hierarchy="<?= html_escape(json_encode($income_account_hierarchy, $json_flags)) ?>"
+			data-account-hierarchy="<?= html_escape(json_encode($account_hierarchy, $json_flags)) ?>"
 			data-csrf-name="<?= html_escape($csrf_name) ?>"
 			data-csrf-value="<?= html_escape($csrf_value) ?>"
-			data-can-edit="<?= $can_edit && $initial_mode !== 'lihat' ? '1' : '0' ?>"
-			data-can-delete="<?= $can_delete && $initial_mode !== 'lihat' ? '1' : '0' ?>"
+			data-can-edit="<?= $can_edit && ($initial_mode !== 'lihat' || $income_view || $expense_view) ? '1' : '0' ?>"
+			data-can-payment="<?= $can_edit ? '1' : '0' ?>"
+			data-can-delete="<?= $can_delete && ($initial_mode !== 'lihat' || $income_view || $expense_view) ? '1' : '0' ?>"
 			data-finance-year="<?= html_escape($finance_filter_year) ?>">
 			<div class="box-header with-border" <?= ($income_input || $expense_input || $finance_input) ? 'style="display:none;"' : '' ?>>
 				<a href="<?= site_url('keuangan_manual/manual_apbdes') ?>" class="btn btn-default btn-sm">
@@ -57,17 +62,10 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 			</div>
 
 			<div class="box-body">
-				<?php if ($income_view || $income_change): ?>
-					<?php if ($income_change): ?>
-						<div class="alert alert-info">
-							Perubahan dibuat dari rincian e-RAB Murni. Data APBDes lama di bawah hanya menyimpan kode, anggaran, dan realisasi; data tersebut tidak memiliki volume, satuan, harga satuan, atau sumber dana untuk diimpor sebagai rincian.
-						</div>
-					<?php else: ?>
-						<h4>Data Anggaran Pendapatan</h4>
-						<div class="alert alert-info">
-							Data lama yang tersedia merupakan rekap anggaran dan realisasi. Rincian volume, satuan, harga satuan, dan sumber dana tidak tersimpan pada data tersebut.
-						</div>
-					<?php endif; ?>
+				<?php if ($income_change): ?>
+					<div class="alert alert-info">
+						Perubahan dibuat dari rincian e-RAB Murni. Data APBDes lama di bawah hanya menyimpan kode, anggaran, dan realisasi; data tersebut tidak memiliki volume, satuan, harga satuan, atau sumber dana untuk diimpor sebagai rincian.
+					</div>
 					<div class="panel panel-default">
 						<div class="panel-heading"><?= $income_change ? 'Rekap Historis Pendapatan APBDes' : 'Rekap Pendapatan APBDes Tersimpan' ?></div>
 						<div class="panel-body">
@@ -112,8 +110,8 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 											<tr>
 												<td><?= html_escape($accountCode) ?></td>
 												<td><?= html_escape($accountName !== '' ? $accountName : $accountText) ?></td>
-												<td class="text-right"><?= number_format((float) $row['Nilai_Anggaran'], 2, ',', '.') ?></td>
-												<td class="text-right"><?= number_format((float) $row['Nilai_Realisasi'], 2, ',', '.') ?></td>
+												<td class="text-right"><?= number_format((float) $row['Nilai_Anggaran'], 2, '.', ',') ?></td>
+												<td class="text-right"><?= number_format((float) $row['Nilai_Realisasi'], 2, '.', ',') ?></td>
 											</tr>
 										<?php endforeach; ?>
 										<?php if ($historical_income === []): ?>
@@ -228,20 +226,24 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 							</tbody>
 						</table>
 					</div>
-					<?php if ($finance_view): ?>
-						<div class="alert alert-info">Rincian item e-RAB Pembiayaan yang tersimpan:</div>
-					<?php endif; ?>
 					<?php if ($finance_view || $finance_change): ?>
 						<div class="table-responsive">
 							<table class="table table-bordered table-striped table-hover">
 								<thead>
 									<tr>
-										<th>Tahun</th><th>Tahap</th><th>Rekening</th>
-										<th class="text-right">Semula</th><th class="text-right">Menjadi</th>
-										<th class="text-right">Selisih</th><th>Aksi</th>
+										<?php if ($finance_view): ?>
+											<th>Kode</th><th>Uraian</th>
+											<th class="text-right">Volume</th><th>Satuan</th>
+											<th class="text-right">Harga</th><th>Sumber dana</th>
+											<th class="text-right">Jumlah</th><th>Aksi</th>
+										<?php else: ?>
+											<th>Tahun</th><th>Tahap</th><th>Rekening</th>
+											<th class="text-right">Semula</th><th class="text-right">Menjadi</th>
+											<th class="text-right">Selisih</th><th>Aksi</th>
+										<?php endif; ?>
 									</tr>
 								</thead>
-								<tbody id="rab-daftar"><tr><td colspan="7" class="text-center">Memuat data...</td></tr></tbody>
+								<tbody id="rab-daftar"><tr><td colspan="<?= $finance_view ? '8' : '7' ?>" class="text-center">Memuat data...</td></tr></tbody>
 							</table>
 						</div>
 					<?php endif; ?>
@@ -302,6 +304,17 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 						<div class="text-center" style="margin-top: 15px;">
 							<button type="button" class="btn btn-primary" id="btn-tampilkan-rab"><i class="fa fa-paper-plane"></i> Submit</button>
 						</div>
+					</div>
+					<div class="rab-expense-summary" id="rab-expense-summary" style="display:none;">
+						<table class="table table-condensed">
+							<tbody>
+								<tr><th>Bidang</th><td>:</td><td id="rab-summary-bidang"></td></tr>
+								<tr><th>Sub Bidang</th><td>:</td><td id="rab-summary-sub-bidang"></td></tr>
+								<tr><th>Kegiatan</th><td>:</td><td id="rab-summary-kegiatan"></td></tr>
+								<tr><th>Waktu Pelaksanaan</th><td>:</td><td id="rab-summary-waktu"></td></tr>
+								<tr><th>Output/Keluaran</th><td>:</td><td id="rab-summary-output"></td></tr>
+							</tbody>
+						</table>
 					</div>
 					<div class="form-inline" id="expense-import-source" style="display:none; margin-bottom:15px;">
 						<label for="expense-source-rab">Pilih e-RAB Belanja Murni tahun lalu</label>
@@ -371,9 +384,9 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 				</div>
 				<?php endif; ?>
 
-				<?php if ($can_edit && ! $income_view && ! $expense_view && ! $finance_view): ?>
+				<?php if ($can_edit && ! $finance_view): ?>
 					<div id="rab-form-section" <?= ($initial_mode === 'lihat' || $expense_change || $finance_change) ? 'style="display:none;"' : '' ?>>
-					<?php if ($income_input): ?>
+					<?php if ($income_input || $income_view): ?>
 						<h3>Form Input</h3>
 						<div class="row">
 							<div class="col-sm-3">
@@ -445,7 +458,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 						</div>
 						<input type="hidden" id="rab-pos" value="6.PEMBIAYAAN">
 						<select id="rab-rekening" style="display:none;" aria-hidden="true"></select>
-					<?php elseif ($expense_input): ?>
+					<?php elseif ($expense_form): ?>
 						<h3>Form Input</h3>
 						<div class="panel panel-default">
 							<div class="panel-heading text-center">ANGGARAN</div>
@@ -465,19 +478,19 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 							<div class="panel-heading text-center">KEGIATAN</div>
 							<div class="panel-body">
 								<div class="row">
-									<div class="col-md-6 form-group">
+									<div class="col-md-4 form-group">
 										<label for="rab-bidang">Bidang</label>
 										<select class="form-control" id="rab-bidang" required><option value="">Pilih</option></select>
 									</div>
-									<div class="col-md-6 form-group">
+									<div class="col-md-4 form-group">
 										<label for="rab-sub-bidang">Sub Bidang</label>
 										<select class="form-control" id="rab-sub-bidang" disabled required><option value="">Pilih</option></select>
 									</div>
-									<div class="col-md-6 form-group">
+									<div class="col-md-4 form-group">
 										<label for="rab-kegiatan">Kegiatan</label>
 										<select class="form-control" id="rab-kegiatan" disabled required><option value="">Pilih</option></select>
 									</div>
-									<div class="col-md-6 form-group">
+									<div class="col-md-4 form-group">
 										<label for="rab-output">Output/Keluaran</label>
 										<select class="form-control" id="rab-output" disabled>
 											<option value="">Pilih</option>
@@ -598,7 +611,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 						Tahun, tahap, dan pos anggaran tidak dapat diubah saat mengedit. Klik Reset untuk membuat anggaran baru dengan jenis berbeda.
 					</div>
 
-					<?php if (! $expense_input && ! $finance_input): ?>
+					<?php if (! $expense_form && ! $finance_input): ?>
 					<div class="row" id="rab-klasifikasi" style="display: none;">
 						<div class="col-md-4">
 							<div class="form-group">
@@ -799,6 +812,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 					</div>
 					<p class="text-muted">
 						Potongan dihitung dari jumlah bruto menggunakan tarif yang tersimpan pada rincian.
+						Pajak dengan ambang otomatis akan dipilih saat bruto per rincian melebihi ambang; pilihan tetap dapat dikoreksi manual. Tekan tombol Otomatis pada baris untuk mengembalikan pilihan sesuai ambang.
 						<?php if ($is_expense): ?>
 							Pencatatan pembayaran dan selisih bayar tersedia pada <a href="<?= site_url('keuangan_manual/spp_rab?' . http_build_query(['tahun_anggaran' => $finance_filter_year, 'tahap' => 'murni'])) ?>">SPP &amp; Kuitansi</a>.
 						<?php endif; ?>
@@ -840,18 +854,35 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 					</div>
 					</div>
 
-				<h4><?= $income_view ? 'Rincian e-RAB Tersimpan' : ($expense_view ? 'Data Anggaran Belanja' : 'Daftar Rincian dan Perbandingan Anggaran') ?></h4>
+				<?php if ($income_view): ?>
+					<div class="clearfix" style="margin-bottom: 15px;">
+						<button type="button" class="btn btn-primary pull-right" disabled title="Impor pendapatan tahun lalu belum tersedia.">
+							Impor Anggaran Tahun Lalu (<?= (int) $finance_filter_year - 1 ?>)
+						</button>
+					</div>
+				<?php endif; ?>
+				<h4><?= $income_view ? 'Data Anggaran Pendapatan' : ($expense_view ? 'Data Anggaran Belanja' : 'Daftar Rincian dan Perbandingan Anggaran') ?></h4>
 				<div class="table-responsive">
 					<table class="table table-bordered table-striped table-hover">
 						<thead>
 							<tr>
-								<th>Tahun</th>
-								<th>Tahap</th>
-								<th>Pos</th>
-								<th>Bidang/Kegiatan</th>
-								<th>Rekening</th>
-								<th class="text-right">Semula</th>
-								<th class="text-right">Menjadi</th>
+								<?php if ($income_view || $expense_view || $expense_change): ?>
+									<th>Kode</th>
+									<th>Uraian</th>
+									<th class="text-right">Volume</th>
+									<th>Satuan</th>
+									<th class="text-right">Harga</th>
+									<th>Sumber dana</th>
+									<th class="text-right">Jumlah</th>
+								<?php else: ?>
+									<th>Tahun</th>
+									<th>Tahap</th>
+									<th>Pos</th>
+									<th>Bidang/Kegiatan</th>
+									<th>Rekening</th>
+									<th class="text-right">Semula</th>
+									<th class="text-right">Menjadi</th>
+								<?php endif; ?>
 								<th>Aksi</th>
 							</tr>
 						</thead>
@@ -866,4 +897,31 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 		</div>
 	</section>
 </div>
+<style>
+	.rab-expense-summary { margin: 15px 7px; }
+	.rab-expense-summary .table { margin-bottom: 10px; }
+	.rab-expense-summary th { width: 145px; }
+	.rab-expense-summary th,
+	.rab-expense-summary td { padding: 3px 6px !important; border: 0 !important; }
+	.rab-income-level-0,
+	.rab-income-level-1,
+	.rab-income-level-2,
+	.rab-expense-level-0,
+	.rab-expense-output,
+	.rab-expense-account-level,
+	.rab-expense-account { font-weight: bold; }
+	.rab-income-level-0,
+	.rab-expense-level-0 { background-color: #f5f5f5; }
+	.rab-income-level-1 td:nth-child(2),
+	.rab-expense-account-level-1 td:nth-child(2) { padding-left: 15px; }
+	.rab-income-level-2 td:nth-child(2),
+	.rab-expense-account-level-2 td:nth-child(2) { padding-left: 30px; }
+	.rab-income-level-3 td:nth-child(2),
+	.rab-expense-account-level-3 td:nth-child(2) { padding-left: 45px; }
+	.rab-expense-account-level-4 td:nth-child(2) { padding-left: 60px; }
+	.rab-income-item td:nth-child(2),
+	.rab-expense-item td:nth-child(2) { padding-left: 60px; }
+	.rab-finance-item td:nth-child(2) { padding-left: 75px; }
+	.rab-expense-output td:nth-child(2) { font-style: italic; text-decoration: underline; }
+</style>
 <script src="<?= asset('js/keuangan_manual_rab.js') ?>"></script>

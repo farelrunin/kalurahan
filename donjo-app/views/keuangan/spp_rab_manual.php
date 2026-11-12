@@ -4,6 +4,7 @@ defined('BASEPATH') || exit('No direct script access allowed');
 
 $spp = is_array($spp) ? $spp : null;
 $locked = $spp !== null && in_array($spp['status'], ['dibayar', 'batal'], true);
+$preselectedItemId = (int) ($preselected_item_id ?? 0);
 $selectedItems = [];
 if ($spp !== null) {
 	foreach ($spp['rincian'] as $item) {
@@ -12,6 +13,13 @@ if ($spp !== null) {
 }
 $money = static fn ($value): string => number_format((float) $value, 2, ',', '.');
 $stageLabels = ['murni' => 'Murni', 'perubahan' => 'Perubahan'];
+$selectedActivityLabel = '';
+foreach ($activity_options as $activityOption) {
+	if ($activityOption['id'] === $selected_sub_kegiatan) {
+		$selectedActivityLabel = $activityOption['label'];
+		break;
+	}
+}
 $statusLabels = [
 	'draft' => 'Draft',
 	'diajukan' => 'Diajukan',
@@ -23,12 +31,12 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 ?>
 <div class="content-wrapper">
 	<section class="content-header">
-		<h1>SPP &amp; Kuitansi e-RAB</h1>
+		<h1>SPP Belanja e-RAB</h1>
 		<ol class="breadcrumb">
 			<li><a href="<?= site_url('beranda') ?>"><i class="fa fa-home"></i> Beranda</a></li>
 			<li>Anggaran</li>
 			<li><a href="<?= site_url('keuangan_manual/anggaran_rab/belanja') ?>">Belanja</a></li>
-			<li class="active">SPP &amp; Kuitansi</li>
+			<li class="active">SPP Belanja</li>
 		</ol>
 	</section>
 
@@ -67,14 +75,44 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 					<div class="alert alert-info">
 						SPP ini berstatus <strong><?= html_escape($statusLabels[$spp['status']] ?? $spp['status']) ?></strong> dan tidak dapat diubah.
 						<a class="btn btn-default btn-sm" target="_blank" rel="noopener" href="<?= site_url('keuangan_manual/cetak_spp_rab/' . (int) $spp['id']) ?>">Cetak SPP</a>
-						<?php if ($spp['status'] === 'dibayar'): ?>
-							<a class="btn btn-primary btn-sm" target="_blank" rel="noopener" href="<?= site_url('keuangan_manual/cetak_kuitansi_rab/' . (int) $spp['id']) ?>">Cetak Kuitansi</a>
-						<?php endif; ?>
 					</div>
-				<?php elseif ($can_edit && $show_form): ?>
+				<?php elseif ($can_edit && $show_form && ! $show_spp_form): ?>
+					<?php if ($mixed_spp): ?>
+						<div class="alert alert-warning">SPP lama ini mencakup lebih dari satu sub-kegiatan sehingga tidak dapat diubah sebagai satu SPP. Cetak SPP akan dipisah per sub-kegiatan.</div>
+					<?php elseif ($activity_options !== []): ?>
+						<form method="get" action="<?= site_url('keuangan_manual/spp_rab') ?>" class="form-inline panel panel-primary">
+							<div class="panel-body">
+								<input type="hidden" name="tahun_anggaran" value="<?= (int) $year ?>">
+								<input type="hidden" name="tahap" value="<?= html_escape($stage) ?>">
+								<input type="hidden" name="baru" value="1">
+								<?php if ($preselected_item_id > 0): ?>
+									<input type="hidden" name="rab_item_id" value="<?= (int) $preselected_item_id ?>">
+								<?php endif; ?>
+								<div class="form-group">
+									<label for="spp-sub-kegiatan">Sub-kegiatan</label>
+									<select class="form-control" id="spp-sub-kegiatan" name="sub_kegiatan" required>
+										<option value="">Pilih sub-kegiatan</option>
+										<?php foreach ($activity_options as $activity): ?>
+											<option value="<?= html_escape($activity['id']) ?>" <?= $selected_sub_kegiatan === $activity['id'] ? 'selected' : '' ?>><?= html_escape($activity['label']) ?></option>
+										<?php endforeach; ?>
+									</select>
+								</div>
+								<button type="submit" class="btn btn-primary">Pilih Sub-kegiatan</button>
+							</div>
+						</form>
+					<?php else: ?>
+						<div class="alert alert-info">Belum ada rincian belanja aktif yang dapat diajukan sebagai SPP.</div>
+					<?php endif; ?>
+				<?php elseif ($can_edit && $show_spp_form): ?>
 					<div class="panel panel-primary">
 						<div class="panel-heading"><strong><?= $spp ? 'Ubah SPP' : 'Buat SPP Baru' ?></strong></div>
 						<div class="panel-body">
+							<?php if ($selectedActivityLabel !== ''): ?>
+								<div class="alert alert-info">SPP ini dibatasi untuk satu sub-kegiatan: <strong><?= html_escape($selectedActivityLabel) ?></strong>.</div>
+							<?php endif; ?>
+							<?php if ($preselectedItemId > 0): ?>
+								<div class="alert alert-info">Rincian dipilih dari Anggaran Belanja. SPP dibatasi pada sub-kegiatan ini; Anda dapat memilih rincian lain dalam sub-kegiatan yang sama.</div>
+							<?php endif; ?>
 							<form method="post" action="<?= site_url('keuangan_manual/spp_rab') ?>" id="spp-rab-form">
 								<input type="hidden" name="<?= html_escape($csrf_name) ?>" value="<?= html_escape($csrf_value) ?>">
 								<input type="hidden" name="action" value="simpan">
@@ -110,40 +148,34 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 									</div>
 								</div>
 								<div class="row">
-									<div class="col-md-4 form-group">
+									<div class="col-md-3 form-group">
 										<label for="spp-recipient">Penerima</label>
 										<input type="text" class="form-control" id="spp-recipient" name="penerima" maxlength="191" required value="<?= html_escape((string) ($spp['penerima'] ?? '')) ?>">
 									</div>
-									<div class="col-md-4 form-group">
-										<label for="spp-address">Alamat</label>
-										<input type="text" class="form-control" id="spp-address" name="alamat" maxlength="255" value="<?= html_escape((string) ($spp['alamat'] ?? '')) ?>">
+									<div class="col-md-2 form-group">
+										<label for="spp-nik">NIK</label>
+										<input type="text" class="form-control" id="spp-nik" name="nik" maxlength="16" inputmode="numeric" pattern="[0-9]{16}" value="<?= html_escape((string) ($spp['nik'] ?? '')) ?>">
 									</div>
-									<div class="col-md-4 form-group">
+									<div class="col-md-2 form-group">
+										<label for="spp-bank-number">No. Rekening BPD</label>
+										<input type="text" class="form-control" id="spp-bank-number" name="nomor_rekening_bpd" maxlength="50" value="<?= html_escape((string) ($spp['nomor_rekening_bpd'] ?? '')) ?>">
+									</div>
+									<div class="col-md-3 form-group">
+										<label for="spp-bank-account">Nama Rekening BPD</label>
+										<input type="text" class="form-control" id="spp-bank-account" name="nama_rekening_bpd" maxlength="191" value="<?= html_escape((string) ($spp['nama_rekening_bpd'] ?? '')) ?>">
+									</div>
+									<div class="col-md-2 form-group">
 										<label for="spp-npwp">NPWP</label>
 										<input type="text" class="form-control" id="spp-npwp" name="npwp" maxlength="30" value="<?= html_escape((string) ($spp['npwp'] ?? '')) ?>">
 									</div>
 								</div>
 								<div class="form-group">
+									<label for="spp-address">Alamat</label>
+									<input type="text" class="form-control" id="spp-address" name="alamat" maxlength="255" value="<?= html_escape((string) ($spp['alamat'] ?? '')) ?>">
+								</div>
+								<div class="form-group">
 									<label for="spp-purpose">Keperluan</label>
 									<textarea class="form-control" id="spp-purpose" name="keperluan" rows="2" maxlength="500" required><?= html_escape((string) ($spp['keperluan'] ?? '')) ?></textarea>
-								</div>
-
-								<div class="form-group kuitansi-fields">
-									<div class="row">
-										<div class="col-md-4">
-											<label for="kuitansi-number">Nomor Kuitansi</label>
-											<input type="text" class="form-control" id="kuitansi-number" name="nomor_kuitansi" maxlength="100" value="<?= html_escape((string) ($spp['nomor_kuitansi'] ?? '')) ?>">
-										</div>
-										<div class="col-md-4">
-											<label for="kuitansi-date">Tanggal Pembayaran</label>
-											<input type="date" class="form-control" id="kuitansi-date" name="tanggal_bayar" value="<?= html_escape((string) ($spp['tanggal_bayar'] ?? date('Y-m-d'))) ?>">
-										</div>
-										<div class="col-md-4">
-											<label for="kuitansi-paid">Jumlah Dibayar (netto)</label>
-											<input type="number" class="form-control" id="kuitansi-paid" name="jumlah_dibayar" min="0.01" step="0.01" value="<?= html_escape((string) ($spp['jumlah_dibayar'] ?? '')) ?>">
-										</div>
-									</div>
-									<p class="help-block">Selisih dihitung dari jumlah dibayar dikurangi jumlah netto SPP; nilai positif berarti lebih bayar dan nilai negatif berarti kurang bayar.</p>
 								</div>
 
 								<h4>Rincian Anggaran yang Dibayarkan</h4>
@@ -168,10 +200,11 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 												$currentAmount = $selectedItems[$itemId] ?? 0;
 												$limit = (float) $source['tersedia'] + $currentAmount;
 												$rates = array_map(static fn (array $tax): float => (float) $tax['persentase'], $source['pajak']);
+												$selected = isset($selectedItems[$itemId]) || (! $spp && $itemId === $preselectedItemId);
 												?>
 												<tr class="spp-source-row" data-rates="<?= html_escape(json_encode($rates, $jsonFlags)) ?>">
 													<td>
-														<input type="checkbox" class="spp-select-item" name="rab_item_ids[]" value="<?= $itemId ?>" <?= isset($selectedItems[$itemId]) ? 'checked' : '' ?> <?= $limit <= 0 && ! isset($selectedItems[$itemId]) ? 'disabled' : '' ?>>
+														<input type="checkbox" class="spp-select-item" name="rab_item_ids[]" value="<?= $itemId ?>" <?= $selected ? 'checked' : '' ?> <?= $limit <= 0 && ! $selected ? 'disabled' : '' ?>>
 													</td>
 													<td>
 														<strong><?= html_escape((string) $source['rekening_kode']) ?> — <?= html_escape((string) $source['rekening_nama']) ?></strong><br>
@@ -184,7 +217,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 													<td class="text-right"><?= $money($source['jumlah_anggaran']) ?></td>
 													<td class="text-right"><?= $money($source['terpakai']) ?></td>
 													<td>
-														<input type="number" class="form-control input-sm spp-item-amount" name="jumlah_bruto[<?= $itemId ?>]" min="0.01" max="<?= number_format($limit, 2, '.', '') ?>" step="0.01" value="<?= isset($selectedItems[$itemId]) ? number_format($currentAmount, 2, '.', '') : '' ?>" <?= isset($selectedItems[$itemId]) ? '' : 'disabled' ?>>
+														<input type="number" class="form-control input-sm spp-item-amount" name="jumlah_bruto[<?= $itemId ?>]" min="0.01" max="<?= number_format($limit, 2, '.', '') ?>" step="0.01" value="<?= isset($selectedItems[$itemId]) ? number_format($currentAmount, 2, '.', '') : '' ?>" <?= $selected ? '' : 'disabled' ?>>
 														<small>Sisa maksimal: <?= $money($limit) ?></small>
 													</td>
 													<td class="text-right spp-item-tax">0,00</td>
@@ -224,8 +257,6 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 								<th class="text-right">Pajak</th>
 								<th class="text-right">Netto</th>
 								<th>Status</th>
-								<th>Nomor Kuitansi</th>
-								<th class="text-right">Dibayar / Selisih</th>
 								<th>Aksi</th>
 							</tr>
 						</thead>
@@ -240,17 +271,10 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 									<td class="text-right"><?= $money($record['jumlah_pajak']) ?></td>
 									<td class="text-right"><?= $money($record['jumlah_netto']) ?></td>
 									<td><?= html_escape($statusLabels[$record['status']] ?? $record['status']) ?></td>
-									<td><?= html_escape((string) ($record['nomor_kuitansi'] ?? '-')) ?></td>
-									<td class="text-right">
-										<?= $record['jumlah_dibayar'] === null ? '-' : $money($record['jumlah_dibayar']) ?>
-										<?php if ($record['selisih_bayar'] !== null): ?><br><small>Selisih <?= $money($record['selisih_bayar']) ?></small><?php endif; ?>
-									</td>
 									<td class="text-nowrap">
 										<?php if ($record['status'] !== 'batal'): ?>
 											<a class="btn btn-default btn-xs" target="_blank" rel="noopener" href="<?= site_url('keuangan_manual/cetak_spp_rab/' . (int) $record['id']) ?>">Cetak SPP</a>
-											<?php if ($record['status'] === 'dibayar'): ?>
-												<a class="btn btn-primary btn-xs" target="_blank" rel="noopener" href="<?= site_url('keuangan_manual/cetak_kuitansi_rab/' . (int) $record['id']) ?>">Kuitansi</a>
-											<?php elseif ($can_edit): ?>
+											<?php if ($record['status'] !== 'dibayar' && $can_edit): ?>
 												<a class="btn btn-warning btn-xs" href="<?= site_url('keuangan_manual/spp_rab?' . http_build_query(['edit' => $record['id'], 'tahun_anggaran' => $year, 'tahap' => $stage])) ?>">Ubah</a>
 											<?php endif; ?>
 										<?php endif; ?>
@@ -268,7 +292,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 								</tr>
 							<?php endforeach; ?>
 							<?php if ($spps === []): ?>
-								<tr><td colspan="11" class="text-center">Belum ada SPP untuk tahun dan tahap ini.</td></tr>
+								<tr><td colspan="9" class="text-center">Belum ada SPP untuk tahun dan tahap ini.</td></tr>
 							<?php endif; ?>
 						</tbody>
 					</table>
@@ -315,15 +339,11 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 				$('#spp-total-tax').text(money(taxTotal));
 				$('#spp-total-net').text(money(gross - taxTotal));
 			}
-			function updateReceiptFields() {
-				var paid = $('#spp-status').val() === 'dibayar';
-				$('.kuitansi-fields').toggle(paid);
-				$('#kuitansi-number, #kuitansi-date, #kuitansi-paid').prop('required', paid);
-			}
-			$('.spp-select-item, .spp-item-amount').on('change input', recalculate);
-			$('#spp-status').on('change', updateReceiptFields);
+			$('.spp-select-item').on('change', function () {
+				recalculate();
+			});
+			$('.spp-item-amount').on('change input', recalculate);
 			recalculate();
-			updateReceiptFields();
 		})(jQuery);
 	</script>
 <?php endif; ?>

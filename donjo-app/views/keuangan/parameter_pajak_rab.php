@@ -27,7 +27,8 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 			</div>
 			<div class="box-body">
 				<div class="alert alert-info">
-					Tarif berlaku untuk rincian Belanja. Jenis pajak awal bernilai 0% dan nonaktif; isi tarif yang berlaku lalu aktifkan sebelum digunakan.
+					Tarif berlaku untuk rincian Belanja. Jika ambang otomatis diisi, pajak akan dipilih otomatis saat bruto per rincian melebihi ambang tersebut; kolom pajak pada rincian tetap dapat dikoreksi manual.
+					Kosongkan ambang untuk pemilihan manual saja. Jenis pajak awal bernilai 0% dan nonaktif; isi tarif yang berlaku lalu aktifkan sebelum digunakan.
 					Jenis pajak yang sudah dipakai tidak dapat dinonaktifkan atau dihapus agar snapshot anggaran tetap terjaga.
 					Nominal lebih/kurang bayar akan dihubungkan pada tahap Kuitansi/SPP.
 				</div>
@@ -41,17 +42,21 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 								<input type="hidden" name="action" value="simpan">
 								<input type="hidden" name="id" id="pajak-id" value="">
 								<div class="row">
-									<div class="col-md-3 form-group">
+									<div class="col-md-2 form-group">
 										<label for="pajak-kode">Kode</label>
 										<input type="text" class="form-control" name="kode" id="pajak-kode" maxlength="50" pattern="[A-Za-z0-9_-]+" required>
 									</div>
-									<div class="col-md-4 form-group">
+									<div class="col-md-3 form-group">
 										<label for="pajak-nama">Nama</label>
 										<input type="text" class="form-control" name="nama" id="pajak-nama" maxlength="191" required>
 									</div>
-									<div class="col-md-3 form-group">
+									<div class="col-md-2 form-group">
 										<label for="pajak-persentase">Tarif (%)</label>
 										<input type="number" class="form-control" name="persentase" id="pajak-persentase" min="0" max="100" step="0.0001" required>
+									</div>
+									<div class="col-md-3 form-group">
+										<label for="pajak-batas-otomatis">Ambang bruto per rincian (Rp)</label>
+										<input type="number" class="form-control" name="batas_otomatis" id="pajak-batas-otomatis" min="0" step="0.01" placeholder="Kosong = manual saja">
 									</div>
 									<div class="col-md-2 form-group">
 										<label class="checkbox-inline" style="margin-top:25px;">
@@ -74,6 +79,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 								<th style="width:180px;">Kode</th>
 								<th>Nama</th>
 								<th class="text-right" style="width:140px;">Tarif</th>
+								<th class="text-right" style="width:190px;">Ambang Otomatis</th>
 								<th style="width:110px;">Status</th>
 								<?php if ($can_edit || $can_delete): ?><th style="width:110px;">Aksi</th><?php endif; ?>
 							</tr>
@@ -85,6 +91,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 									<td><?= html_escape($tax['kode']) ?></td>
 									<td><?= html_escape($tax['nama']) ?></td>
 									<td class="text-right"><?= number_format((float) $tax['persentase'], 4, ',', '.') ?>%</td>
+									<td class="text-right"><?= $tax['batas_otomatis'] === null ? 'Manual saja' : 'Otomatis jika > Rp' . number_format((float) $tax['batas_otomatis'], 2, ',', '.') ?></td>
 									<td>
 										<?php if ((int) $tax['aktif'] === 1): ?>
 											<span class="label label-success">Aktif</span>
@@ -112,7 +119,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 								</tr>
 							<?php endforeach; ?>
 							<?php if ($taxes === []): ?>
-								<tr><td colspan="<?= 5 + ($can_edit || $can_delete ? 1 : 0) ?>" class="text-center">Belum ada parameter pajak.</td></tr>
+								<tr><td colspan="<?= 6 + ($can_edit || $can_delete ? 1 : 0) ?>" class="text-center">Belum ada parameter pajak.</td></tr>
 							<?php endif; ?>
 						</tbody>
 					</table>
@@ -133,6 +140,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 				$('#pajak-kode').val(tax ? tax.kode : '');
 				$('#pajak-nama').val(tax ? tax.nama : '');
 				$('#pajak-persentase').val(tax ? tax.persentase : '0');
+				$('#pajak-batas-otomatis').val(tax && tax.batas_otomatis !== null ? tax.batas_otomatis : '');
 				$('#pajak-aktif').prop('checked', tax ? Number(tax.aktif) === 1 : true);
 				$('#pajak-form-title').text(tax ? 'Ubah Pajak' : 'Tambah Pajak');
 				panel.show()[0].scrollIntoView({behavior: 'smooth', block: 'start'});

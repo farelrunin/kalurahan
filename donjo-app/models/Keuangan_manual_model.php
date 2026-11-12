@@ -665,11 +665,13 @@ class Keuangan_manual_model extends MY_Model
         $kode = strtoupper(trim((string) ($data['kode'] ?? '')));
         $nama = trim((string) ($data['nama'] ?? ''));
         $persentase = trim((string) ($data['persentase'] ?? ''));
+        $batasOtomatis = trim((string) ($data['batas_otomatis'] ?? ''));
         if (! preg_match('/^[A-Z0-9_-]{1,50}$/', $kode)
             || $nama === ''
             || mb_strlen($nama) > 191
             || ! preg_match('/^\d{1,3}(?:\.\d{1,4})?$/', $persentase)
-            || (float) $persentase > 100) {
+            || (float) $persentase > 100
+            || ($batasOtomatis !== '' && ! preg_match('/^\d{1,16}(?:\.\d{1,2})?$/', $batasOtomatis))) {
             return false;
         }
 
@@ -694,6 +696,7 @@ class Keuangan_manual_model extends MY_Model
             'kode' => $kode,
             'nama' => $nama,
             'persentase' => $persentase,
+            'batas_otomatis' => $batasOtomatis === '' ? null : number_format((float) $batasOtomatis, 2, '.', ''),
             'aktif' => (int) ! empty($data['aktif']),
             'updated_at' => date('Y-m-d H:i:s'),
         ];
@@ -808,6 +811,123 @@ class Keuangan_manual_model extends MY_Model
 
         return $rows;
     }
+
+    public function list_rab_pendapatan_dengan_rincian(array $filter = []): array
+    {
+        $rows = $this->list_rab_manual($filter);
+        if ($rows === []) {
+            return [];
+        }
+
+        $rabIds = array_map('intval', array_column($rows, 'id'));
+        $items = $this->config_id()
+            ->select('id, rab_id, keterangan, volume, satuan, harga_satuan, sumber_dana')
+            ->where_in('rab_id', $rabIds)
+            ->where('dihapus', 0)
+            ->order_by('rab_id')
+            ->order_by('id')
+            ->get('keuangan_manual_rab_item')
+            ->result_array();
+        $itemsByRab = [];
+        foreach ($items as $item) {
+            $itemsByRab[(int) $item['rab_id']][] = $item;
+        }
+        foreach ($rows as &$row) {
+            $row['rincian'] = $itemsByRab[(int) $row['id']] ?? [];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function list_rab_belanja_dengan_rincian(array $filter = []): array
+    {
+        $rows = $this->list_rab_manual($filter);
+        if ($rows === []) {
+            return [];
+        }
+
+        $rabIds = array_map('intval', array_column($rows, 'id'));
+        $items = $this->config_id()
+            ->select('id, rab_id, keterangan, volume, satuan, harga_satuan, sumber_dana')
+            ->where_in('rab_id', $rabIds)
+            ->where('dihapus', 0)
+            ->order_by('rab_id')
+            ->order_by('id')
+            ->get('keuangan_manual_rab_item')
+            ->result_array();
+        if ($items === []) {
+            foreach ($rows as &$row) {
+                $row['rincian'] = [];
+            }
+            unset($row);
+
+            return $rows;
+        }
+
+        $itemIds = array_map('intval', array_column($items, 'id'));
+        $sourcesByItem = [];
+        $year = is_scalar($filter['tahun'] ?? null) ? (int) $filter['tahun'] : 0;
+        $stage = strtolower((string) ($filter['tahap'] ?? ''));
+        if ($year > 0 && in_array($stage, ['murni', 'perubahan'], true)) {
+            foreach ($this->list_rab_spp_sources($year, $stage) as $source) {
+                $sourcesByItem[(int) $source['rab_item_id']] = $source;
+            }
+        }
+        $receiptsByItem = [];
+        foreach ($this->config_id()->where_in('rab_item_id', $itemIds)
+            ->get('keuangan_manual_rab_kuitansi_item')->result_array() as $receipt) {
+            $receiptsByItem[(int) $receipt['rab_item_id']] = $receipt;
+        }
+
+        $itemsByRab = [];
+        foreach ($items as $item) {
+            $itemId = (int) $item['id'];
+            $source = $sourcesByItem[$itemId] ?? [];
+            $item['jumlah_anggaran'] = (float) ($source['jumlah_anggaran'] ?? 0);
+            $item['terpakai'] = (float) ($source['terpakai'] ?? 0);
+            $item['tersedia'] = (float) ($source['tersedia'] ?? 0);
+            $item['pajak'] = $source['pajak'] ?? [];
+            $item['kuitansi'] = $receiptsByItem[$itemId] ?? null;
+            $itemsByRab[(int) $item['rab_id']][] = $item;
+        }
+        foreach ($rows as &$row) {
+            $row['rincian'] = $itemsByRab[(int) $row['id']] ?? [];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function list_rab_pembiayaan_dengan_rincian(array $filter = []): array
+    {
+        $rows = $this->list_rab_manual($filter);
+        if ($rows === []) {
+            return [];
+        }
+
+        $rabIds = array_map('intval', array_column($rows, 'id'));
+        $items = $this->config_id()
+            ->select('id, rab_id, keterangan, volume, satuan, harga_satuan, sumber_dana')
+            ->where_in('rab_id', $rabIds)
+            ->where('dihapus', 0)
+            ->order_by('rab_id')
+            ->order_by('id')
+            ->get('keuangan_manual_rab_item')
+            ->result_array();
+        $itemsByRab = [];
+        foreach ($items as $item) {
+            $itemsByRab[(int) $item['rab_id']][] = $item;
+        }
+        foreach ($rows as &$row) {
+            $row['rincian'] = $itemsByRab[(int) $row['id']] ?? [];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+
 
     public function get_rab_manual(int $id): ?array
     {
@@ -931,7 +1051,7 @@ class Keuangan_manual_model extends MY_Model
             foreach ($rincian as $item) {
                 $itemId = (int) ($item['id'] ?? 0);
                 $pajakIds = $item['pajak_ids'] ?? [];
-                unset($item['id'], $item['pajak_ids']);
+                unset($item['id'], $item['pajak_ids'], $item['pajak_manual']);
                 $item['updated_at'] = $now;
                 if ($itemId > 0) {
                     if (! isset($existingById[$itemId])) {
@@ -997,6 +1117,155 @@ class Keuangan_manual_model extends MY_Model
         }
 
         return $id;
+    }
+
+    public function tambah_rincian_rab_manual(int $rabId, array $items): int|false
+    {
+        $rab = $this->config_id()
+            ->where('id', $rabId)
+            ->where('jenis', 'belanja')
+            ->get('keuangan_manual_rab')
+            ->row_array();
+        if (empty($rab)) {
+            return false;
+        }
+        if (! array_is_list($items) || $items === [] || count($items) > 500) {
+            throw new InvalidArgumentException('Rincian harus berisi 1 sampai 500 item.');
+        }
+
+        $references = $this->list_rab_referensi();
+        $allowedFunds = array_values(array_filter(array_map(
+            static fn (array $source): string => (string) ($source['kode'] ?? $source['nama']),
+            $references['sumber_dana']
+        )));
+        $taxesById = [];
+        foreach ($references['pajak'] as $tax) {
+            $taxesById[(int) $tax['id']] = $tax;
+        }
+
+        $preparedItems = [];
+        foreach ($items as $item) {
+            if (! is_array($item)
+                || ! is_scalar($item['keterangan'] ?? null)
+                || ! is_scalar($item['volume'] ?? null)
+                || ! is_scalar($item['satuan'] ?? null)
+                || ! is_scalar($item['harga_satuan'] ?? null)
+                || ! is_scalar($item['sumber_dana'] ?? null)) {
+                throw new InvalidArgumentException('Format baris rincian tidak valid.');
+            }
+
+            $description = trim((string) $item['keterangan']);
+            $volume = trim((string) $item['volume']);
+            $unit = trim((string) $item['satuan']);
+            $price = trim((string) $item['harga_satuan']);
+            $fund = trim((string) $item['sumber_dana']);
+            $manualTaxValue = $item['pajak_manual'] ?? '0';
+            $taxIds = $item['pajak_ids'] ?? [];
+            if (! preg_match('/^\d{1,14}(?:\.\d{1,4})?$/', $volume)
+                || ! preg_match('/^\d{1,16}(?:\.\d{1,2})?$/', $price)) {
+                throw new InvalidArgumentException('Volume atau harga satuan tidak valid.');
+            }
+            if (! is_scalar($manualTaxValue) || ! in_array((string) $manualTaxValue, ['0', '1'], true)
+                || ! is_array($taxIds) || ! array_is_list($taxIds) || count($taxIds) > 50) {
+                throw new InvalidArgumentException('Pilihan pajak tidak valid.');
+            }
+            if ($description === '' || mb_strlen($description) > 255 || mb_strlen($unit) > 50
+                || ! in_array($fund, $allowedFunds, true)) {
+                throw new InvalidArgumentException('Lengkapi semua kolom rincian dengan nilai yang valid.');
+            }
+
+            $normalizedTaxIds = [];
+            if ((string) $manualTaxValue === '1') {
+                foreach ($taxIds as $taxId) {
+                    if (! is_scalar($taxId) || ! ctype_digit((string) $taxId)
+                        || ! isset($taxesById[(int) $taxId])
+                        || in_array((int) $taxId, $normalizedTaxIds, true)) {
+                        throw new InvalidArgumentException('Jenis pajak tidak ditemukan, tidak aktif, atau dipilih lebih dari sekali.');
+                    }
+                    $normalizedTaxIds[] = (int) $taxId;
+                }
+            } else {
+                $gross = round((float) $volume * (float) $price, 2, PHP_ROUND_HALF_UP);
+                foreach ($references['pajak'] as $tax) {
+                    $threshold = $tax['batas_otomatis'] ?? null;
+                    if ($threshold !== null && $gross > (float) $threshold) {
+                        $normalizedTaxIds[] = (int) $tax['id'];
+                    }
+                }
+            }
+
+            $totalTaxRate = array_sum(array_map(
+                static fn (int $taxId): float => (float) $taxesById[$taxId]['persentase'],
+                $normalizedTaxIds
+            ));
+            if ($totalTaxRate > 100) {
+                throw new InvalidArgumentException('Jumlah tarif pajak dan potongan per item tidak boleh melebihi 100%.');
+            }
+
+            $preparedItems[] = [
+                'keterangan' => $description,
+                'volume' => $volume,
+                'satuan' => $unit === '' ? null : $unit,
+                'harga_satuan' => $price,
+                'sumber_dana' => $fund,
+                'pajak_ids' => $normalizedTaxIds,
+            ];
+        }
+
+        $this->db->trans_begin();
+        try {
+            $existingCount = $this->config_id()
+                ->where('rab_id', $rabId)
+                ->where('dihapus', 0)
+                ->count_all_results('keuangan_manual_rab_item');
+            if ($existingCount + count($preparedItems) > 500) {
+                throw new InvalidArgumentException('Rincian anggaran maksimal 500 item.');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            foreach ($preparedItems as $item) {
+                $taxIds = $item['pajak_ids'];
+                unset($item['pajak_ids']);
+                $item += [
+                    'config_id' => $this->config_id,
+                    'rab_id' => $rabId,
+                    'dihapus' => 0,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+                $this->db->insert('keuangan_manual_rab_item', $item);
+                $itemId = (int) $this->db->insert_id();
+                if ($itemId < 1) {
+                    throw new RuntimeException('Gagal membuat rincian item anggaran.');
+                }
+                $this->sync_rab_item_pajak(
+                    $itemId,
+                    $taxIds,
+                    (string) $item['volume'],
+                    (string) $item['harga_satuan'],
+                    'belanja',
+                    $now
+                );
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan rincian item anggaran.');
+            }
+            $this->db->trans_commit();
+        } catch (InvalidArgumentException $error) {
+            $this->db->trans_rollback();
+
+            throw $error;
+        } catch (Throwable $error) {
+            $dbError = $this->db->error();
+            $this->db->trans_rollback();
+            $errorMessage = trim((string) ($dbError['message'] ?? ''));
+            log_message('error', 'Gagal menambah rincian anggaran belanja: ' . ($errorMessage !== '' ? $errorMessage : $error->getMessage()));
+
+            return false;
+        }
+
+        return $rabId;
     }
 
     public function salin_rab_perubahan(int $id): int|false
@@ -1228,7 +1497,8 @@ class Keuangan_manual_model extends MY_Model
             'id'
         );
         if ($itemIds !== []
-            && $this->config_id()->where_in('rab_item_id', $itemIds)->count_all_results('keuangan_manual_rab_spp_item') > 0) {
+            && ($this->config_id()->where_in('rab_item_id', $itemIds)->count_all_results('keuangan_manual_rab_spp_item') > 0
+                || $this->config_id()->where_in('rab_item_id', $itemIds)->count_all_results('keuangan_manual_rab_kuitansi_item') > 0)) {
             $this->db->trans_rollback();
 
             return false;
@@ -1249,6 +1519,53 @@ class Keuangan_manual_model extends MY_Model
         $this->db->trans_commit();
 
         return $deleted;
+    }
+
+    public function hapus_rab_item_manual(int $rabId, int $itemId): bool
+    {
+        $rab = $this->config_id()
+            ->where('id', $rabId)
+            ->get('keuangan_manual_rab')
+            ->row_array();
+        $item = $this->config_id()
+            ->where('id', $itemId)
+            ->where('rab_id', $rabId)
+            ->where('dihapus', 0)
+            ->get('keuangan_manual_rab_item')
+            ->row_array();
+
+        if (empty($rab) || empty($item)
+            || $this->config_id()->where('rab_item_id', $itemId)->count_all_results('keuangan_manual_rab_spp_item') > 0
+            || $this->config_id()->where('rab_item_id', $itemId)->count_all_results('keuangan_manual_rab_kuitansi_item') > 0
+            || ('murni' === $rab['tahap']
+                && $this->config_id()->where('sumber_murni_item_id', $itemId)->count_all_results('keuangan_manual_rab_item') > 0)) {
+            return false;
+        }
+
+        $this->db->trans_begin();
+        if ('perubahan' === $rab['tahap']) {
+            $this->config_id()
+                ->where('id', $itemId)
+                ->where('rab_id', $rabId)
+                ->update('keuangan_manual_rab_item', ['dihapus' => 1, 'updated_at' => date('Y-m-d H:i:s')]);
+        } else {
+            $this->config_id()
+                ->where('rab_item_id', $itemId)
+                ->delete('keuangan_manual_rab_item_pajak');
+            $this->config_id()
+                ->where('id', $itemId)
+                ->where('rab_id', $rabId)
+                ->delete('keuangan_manual_rab_item');
+        }
+
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+
+            return false;
+        }
+        $this->db->trans_commit();
+
+        return true;
     }
 
     public function list_rab_spp(int $tahun, string $tahap): array
@@ -1277,19 +1594,27 @@ class Keuangan_manual_model extends MY_Model
         }
         $receipts = $this->config_id()
             ->where_in('spp_id', $sppIds)
+            ->order_by('id')
             ->get('keuangan_manual_rab_kuitansi')
             ->result_array();
         $receiptsById = [];
         foreach ($receipts as $receipt) {
-            $receiptsById[(int) $receipt['spp_id']] = $receipt;
+            $receiptsById[(int) $receipt['spp_id']][] = $receipt;
         }
         foreach ($rows as &$row) {
             $row['jumlah_item'] = $countsById[(int) $row['id']] ?? 0;
-            $receipt = $receiptsById[(int) $row['id']] ?? [];
-            $row['nomor_kuitansi'] = $receipt['nomor_kuitansi'] ?? null;
-            $row['tanggal_bayar'] = $receipt['tanggal_bayar'] ?? null;
-            $row['jumlah_dibayar'] = $receipt['jumlah_dibayar'] ?? null;
-            $row['selisih_bayar'] = $receipt['selisih_bayar'] ?? null;
+            $sppReceipts = $receiptsById[(int) $row['id']] ?? [];
+            $row['jumlah_kuitansi'] = count($sppReceipts);
+            $row['nomor_kuitansi'] = $sppReceipts === []
+                ? null
+                : implode(', ', array_column($sppReceipts, 'nomor_kuitansi'));
+            $row['tanggal_bayar'] = $sppReceipts[0]['tanggal_bayar'] ?? null;
+            $row['jumlah_dibayar'] = $sppReceipts === []
+                ? null
+                : array_sum(array_map(static fn (array $receipt): float => (float) $receipt['jumlah_dibayar'], $sppReceipts));
+            $row['selisih_bayar'] = $sppReceipts === []
+                ? null
+                : array_sum(array_map(static fn (array $receipt): float => (float) $receipt['selisih_bayar'], $sppReceipts));
         }
         unset($row);
 
@@ -1303,7 +1628,7 @@ class Keuangan_manual_model extends MY_Model
         }
 
         $rows = $this->db
-            ->select('rab.id AS rab_id, rab.tahun, rab.tahap, rab.rekening_kode, rab.rekening_nama, rab.kegiatan, item.id AS rab_item_id, item.keterangan, item.volume, item.satuan, item.harga_satuan, item.sumber_dana')
+            ->select('rab.id AS rab_id, rab.tahun, rab.tahap, rab.bidang_kode, rab.sub_bidang, rab.rekening_kode, rab.rekening_nama, rab.kegiatan, rab.kegiatan_sumber, rab.output, item.id AS rab_item_id, item.keterangan, item.volume, item.satuan, item.harga_satuan, item.sumber_dana')
             ->from('keuangan_manual_rab rab')
             ->join(
                 'keuangan_manual_rab_item item',
@@ -1361,6 +1686,7 @@ class Keuangan_manual_model extends MY_Model
 
         foreach ($rows as &$row) {
             $itemId = (int) $row['rab_item_id'];
+            $row['sub_kegiatan_id'] = (string) $row['bidang_kode'] . '|' . (string) $row['kegiatan'];
             $budget = round((float) $row['volume'] * (float) $row['harga_satuan'], 2, PHP_ROUND_HALF_UP);
             $used = round($usedByItem[$itemId] ?? 0, 2, PHP_ROUND_HALF_UP);
             $row['jumlah_anggaran'] = $budget;
@@ -1375,27 +1701,36 @@ class Keuangan_manual_model extends MY_Model
 
     public function get_rab_spp(int $id): ?array
     {
-        $spp = $this->db
-            ->select('spp.*, kuitansi.id AS kuitansi_id, kuitansi.nomor_kuitansi, kuitansi.tanggal_bayar, kuitansi.penerima AS penerima_kuitansi, kuitansi.alamat AS alamat_kuitansi, kuitansi.npwp AS npwp_kuitansi, kuitansi.jumlah_dibayar, kuitansi.selisih_bayar')
-            ->from('keuangan_manual_rab_spp spp')
-            ->join(
-                'keuangan_manual_rab_kuitansi kuitansi',
-                'kuitansi.spp_id = spp.id AND kuitansi.config_id = spp.config_id',
-                'left'
-            )
-            ->where('spp.config_id', $this->config_id)
-            ->where('spp.id', $id)
-            ->get()
+        $spp = $this->config_id()
+            ->where('id', $id)
+            ->get('keuangan_manual_rab_spp')
             ->row_array();
         if (empty($spp)) {
             return null;
         }
 
-        $spp['rincian'] = $this->config_id()
-            ->select('id, rab_id, rab_item_id, keterangan, jumlah_bruto')
-            ->where('spp_id', $id)
-            ->order_by('id')
-            ->get('keuangan_manual_rab_spp_item')
+        $spp['rincian'] = $this->db
+            ->select('detail.id, detail.rab_id, detail.rab_item_id, detail.keterangan, detail.jumlah_bruto,
+                rab.jenis, rab.tahap, rab.bidang_kode, rab.sub_bidang, rab.kegiatan, rab.kegiatan_sumber, rab.output,
+                rab.klasifikasi_belanja, rab.nama_paket, rab.pka,
+                rab.rekening_kode, rab.rekening_nama, sumber.volume, sumber.satuan, sumber.harga_satuan, sumber.sumber_dana')
+            ->from('keuangan_manual_rab_spp_item detail')
+            ->join(
+                'keuangan_manual_rab rab',
+                'rab.id = detail.rab_id AND rab.config_id = detail.config_id',
+                'inner'
+            )
+            ->join(
+                'keuangan_manual_rab_item sumber',
+                'sumber.id = detail.rab_item_id AND sumber.rab_id = detail.rab_id AND sumber.config_id = detail.config_id',
+                'inner'
+            )
+            ->where('detail.config_id', $this->config_id)
+            ->where('rab.config_id', $this->config_id)
+            ->where('sumber.config_id', $this->config_id)
+            ->where('detail.spp_id', $id)
+            ->order_by('detail.id')
+            ->get()
             ->result_array();
         $itemIds = array_column($spp['rincian'], 'id');
         $taxRows = $itemIds === []
@@ -1409,12 +1744,328 @@ class Keuangan_manual_model extends MY_Model
         foreach ($taxRows as $tax) {
             $taxesByItem[(int) $tax['spp_item_id']][] = $tax;
         }
+        $receipts = $this->config_id()
+            ->where('spp_id', $id)
+            ->order_by('id')
+            ->get('keuangan_manual_rab_kuitansi')
+            ->result_array();
+        $receiptsByItemId = [];
+        $legacyReceipts = [];
+        foreach ($receipts as $receipt) {
+            $itemId = (int) ($receipt['spp_item_id'] ?? 0);
+            if ($itemId > 0) {
+                $receiptsByItemId[$itemId] = $receipt;
+            } else {
+                $legacyReceipts[] = $receipt;
+            }
+        }
+        $itemsById = [];
+        $references = $this->list_rab_referensi();
         foreach ($spp['rincian'] as &$item) {
+            $item['sub_kegiatan_id'] = (string) $item['bidang_kode'] . '|' . (string) $item['kegiatan'];
+            $this->map_rab_row($item, $references);
             $item['pajak'] = $taxesByItem[(int) $item['id']] ?? [];
+            $item['kuitansi'] = $receiptsByItemId[(int) $item['id']] ?? null;
+            $itemForReceipt = $item;
+            unset($itemForReceipt['kuitansi']);
+            $itemsById[(int) $item['id']] = $itemForReceipt;
         }
         unset($item);
+        foreach ($receipts as &$receipt) {
+            $receipt['rincian'] = $itemsById[(int) ($receipt['spp_item_id'] ?? 0)] ?? null;
+        }
+        unset($receipt);
+        $spp['kuitansi'] = $receipts;
+        $spp['legacy_kuitansi'] = $legacyReceipts;
 
         return $spp;
+    }
+
+    public function simpan_rab_kuitansi(int $sppId, array $receipts): bool
+    {
+        $spp = $this->get_rab_spp($sppId);
+        if ($spp === null || $spp['status'] !== 'dibayar') {
+            throw new InvalidArgumentException('Kuitansi hanya dapat dicatat setelah SPP berstatus Dibayar.');
+        }
+
+        $itemsById = [];
+        foreach ($spp['rincian'] as $item) {
+            $itemsById[(int) $item['id']] = $item;
+        }
+        $validDate = static function (string $value): bool {
+            $parsed = DateTime::createFromFormat('!Y-m-d', $value);
+
+            return $parsed !== false && $parsed->format('Y-m-d') === $value;
+        };
+        $moneyPattern = '/^\d{1,16}(?:\.\d{1,2})?$/';
+        $preparedReceipts = [];
+        $receiptNumbers = [];
+        foreach ($receipts as $itemId => $receipt) {
+            if (! ctype_digit((string) $itemId) || ! is_array($receipt) || ! isset($itemsById[(int) $itemId]) || isset($preparedReceipts[(int) $itemId])) {
+                throw new InvalidArgumentException('Rincian kuitansi tidak sesuai dengan SPP ini.');
+            }
+
+            $receipt = [
+                'nomor_kuitansi' => is_scalar($receipt['nomor_kuitansi'] ?? null) ? trim((string) $receipt['nomor_kuitansi']) : '',
+                'penerima' => is_scalar($receipt['penerima'] ?? null) ? trim((string) $receipt['penerima']) : '',
+                'sebagai_pembayaran' => is_scalar($receipt['sebagai_pembayaran'] ?? null) ? trim((string) $receipt['sebagai_pembayaran']) : '',
+                'tanggal_bayar' => is_scalar($receipt['tanggal_bayar'] ?? null) ? trim((string) $receipt['tanggal_bayar']) : '',
+                'jumlah_dibayar' => is_scalar($receipt['jumlah_dibayar'] ?? null) ? trim((string) $receipt['jumlah_dibayar']) : '',
+            ];
+            if (array_filter($receipt, static fn (string $value): bool => $value !== '') === []) {
+                continue;
+            }
+            if ($receipt['nomor_kuitansi'] === '' || mb_strlen($receipt['nomor_kuitansi']) > 100
+                || $receipt['penerima'] === '' || mb_strlen($receipt['penerima']) > 191
+                || $receipt['sebagai_pembayaran'] === '' || mb_strlen($receipt['sebagai_pembayaran']) > 500
+                || ! $validDate($receipt['tanggal_bayar'])
+                || ! preg_match($moneyPattern, $receipt['jumlah_dibayar'])
+                || (float) $receipt['jumlah_dibayar'] <= 0) {
+                throw new InvalidArgumentException('Nomor, penerima, uraian, tanggal, dan jumlah dibayar wajib lengkap pada setiap kuitansi.');
+            }
+
+            $normalizedNumber = strtolower($receipt['nomor_kuitansi']);
+            if (isset($receiptNumbers[$normalizedNumber])) {
+                throw new InvalidArgumentException('Nomor kuitansi tidak boleh sama pada rincian yang berbeda.');
+            }
+            $receiptNumbers[$normalizedNumber] = true;
+            $preparedReceipts[(int) $itemId] = $receipt;
+        }
+        if ($preparedReceipts === []) {
+            throw new InvalidArgumentException('Isi data setidaknya satu kuitansi sub-belanja.');
+        }
+
+        $this->db->trans_begin();
+        try {
+            $lockedSpp = $this->config_id()
+                ->where('id', $sppId)
+                ->get('keuangan_manual_rab_spp')
+                ->row_array();
+            if (empty($lockedSpp) || $lockedSpp['status'] !== 'dibayar') {
+                throw new InvalidArgumentException('SPP tidak ditemukan atau belum berstatus Dibayar.');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            foreach ($preparedReceipts as $itemId => $receipt) {
+                $item = $itemsById[$itemId];
+                $existingReceipt = $item['kuitansi'] ?? null;
+                $existingReceiptId = (int) ($existingReceipt['id'] ?? 0);
+                $duplicateNumber = $this->config_id()->where('nomor_kuitansi', $receipt['nomor_kuitansi']);
+                if ($existingReceiptId > 0) {
+                    $duplicateNumber->where('id !=', $existingReceiptId);
+                }
+                if ($duplicateNumber->count_all_results('keuangan_manual_rab_kuitansi') > 0) {
+                    throw new InvalidArgumentException('Nomor kuitansi sudah digunakan.');
+                }
+
+                $taxTotal = array_sum(array_map(
+                    static fn (array $tax): float => (float) $tax['nilai_pajak'],
+                    $item['pajak']
+                ));
+                $net = round((float) $item['jumlah_bruto'] - $taxTotal, 2, PHP_ROUND_HALF_UP);
+                $paid = (float) $receipt['jumlah_dibayar'];
+                $values = [
+                    'config_id' => $this->config_id,
+                    'spp_id' => $sppId,
+                    'spp_item_id' => $itemId,
+                    'tahun' => (int) $spp['tahun'],
+                    'nomor_kuitansi' => $receipt['nomor_kuitansi'],
+                    'tanggal_bayar' => $receipt['tanggal_bayar'],
+                    'penerima' => $receipt['penerima'],
+                    'sebagai_pembayaran' => $receipt['sebagai_pembayaran'],
+                    'alamat' => $spp['alamat'] ?: null,
+                    'npwp' => $spp['npwp'] ?: null,
+                    'jumlah_dibayar' => number_format($paid, 2, '.', ''),
+                    'selisih_bayar' => number_format(round($paid - $net, 2, PHP_ROUND_HALF_UP), 2, '.', ''),
+                    'updated_at' => $now,
+                ];
+                if ($existingReceiptId > 0) {
+                    $saved = $this->config_id()
+                        ->where('id', $existingReceiptId)
+                        ->where('spp_id', $sppId)
+                        ->update('keuangan_manual_rab_kuitansi', $values);
+                } else {
+                    $values['created_at'] = $now;
+                    $saved = $this->db->insert('keuangan_manual_rab_kuitansi', $values);
+                }
+                if (! $saved) {
+                    throw new RuntimeException('Gagal menyimpan kuitansi sub-belanja.');
+                }
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Transaksi kuitansi gagal.');
+            }
+            $this->db->trans_commit();
+        } catch (InvalidArgumentException $error) {
+            $this->db->trans_rollback();
+
+            throw $error;
+        } catch (Throwable $error) {
+            $dbError = $this->db->error();
+            $this->db->trans_rollback();
+            $message = trim((string) ($dbError['message'] ?? ''));
+            log_message('error', 'Gagal menyimpan kuitansi e-RAB: ' . ($message !== '' ? $message : $error->getMessage()));
+
+            return false;
+        }
+
+        return true;
+    }
+
+    public function get_rab_item_kuitansi(int $itemId): ?array
+    {
+        if ($itemId < 1) {
+            return null;
+        }
+
+        $item = $this->config_id()
+            ->where('id', $itemId)
+            ->where('dihapus', 0)
+            ->get('keuangan_manual_rab_item')
+            ->row_array();
+        if (empty($item)) {
+            return null;
+        }
+
+        $rab = $this->get_rab_manual((int) $item['rab_id']);
+        if ($rab === null || $rab['jenis'] !== 'belanja') {
+            return null;
+        }
+        foreach ($rab['rincian'] as $detail) {
+            if ((int) $detail['id'] === $itemId) {
+                $item = $detail;
+                break;
+            }
+        }
+
+        $gross = round((float) $item['volume'] * (float) $item['harga_satuan'], 2, PHP_ROUND_HALF_UP);
+        $taxTotal = round(array_sum(array_map(
+            static fn (array $tax): float => (float) $tax['nilai_pajak'],
+            $item['pajak'] ?? []
+        )), 2, PHP_ROUND_HALF_UP);
+        $item['jumlah_bruto'] = $gross;
+        $item['jumlah_pajak'] = $taxTotal;
+        $item['jumlah_netto'] = round($gross - $taxTotal, 2, PHP_ROUND_HALF_UP);
+        $item['kuitansi'] = $this->config_id()
+            ->where('rab_item_id', $itemId)
+            ->get('keuangan_manual_rab_kuitansi_item')
+            ->row_array() ?: null;
+        if ($item['kuitansi'] !== null) {
+            $snapshot = trim((string) ($item['kuitansi']['pajak_snapshot'] ?? ''));
+            if ($snapshot !== '') {
+                try {
+                    $savedTaxes = json_decode($snapshot, true, 512, JSON_THROW_ON_ERROR);
+                } catch (JsonException $error) {
+                    log_message('error', 'Snapshot pajak kuitansi e-RAB tidak valid: ' . $error->getMessage());
+
+                    throw new RuntimeException('Data snapshot pajak kuitansi tidak dapat dibaca.', 0, $error);
+                }
+                if (! is_array($savedTaxes)) {
+                    throw new RuntimeException('Data snapshot pajak kuitansi tidak dapat dibaca.');
+                }
+                $item['pajak'] = $savedTaxes;
+            }
+            foreach (['jumlah_bruto', 'jumlah_pajak', 'jumlah_netto'] as $field) {
+                $item[$field] = (float) $item['kuitansi'][$field];
+            }
+        }
+
+        return [
+            'rab_id' => (int) $rab['id'],
+            'tahun' => (int) $rab['tahun'],
+            'tahap' => (string) $rab['tahap'],
+            'rab' => [
+                'bidang_kode' => (string) $rab['bidang_kode'],
+                'sub_bidang' => (string) $rab['sub_bidang'],
+                'kegiatan' => (string) $rab['kegiatan'],
+                'kd_kegiatan' => (string) ($rab['kd_kegiatan'] ?? ''),
+                'nama_kegiatan' => (string) ($rab['nama_kegiatan'] ?? $rab['kegiatan']),
+                'rekening_kode' => (string) $rab['rekening_kode'],
+                'rekening_nama' => (string) $rab['rekening_nama'],
+            ],
+            'item' => $item,
+        ];
+    }
+
+    public function simpan_rab_item_kuitansi(int $itemId, array $data): int|false
+    {
+        $number = is_scalar($data['nomor_kuitansi'] ?? null) ? trim((string) $data['nomor_kuitansi']) : '';
+        $recipient = is_scalar($data['penerima'] ?? null) ? trim((string) $data['penerima']) : '';
+        $description = is_scalar($data['sebagai_pembayaran'] ?? null) ? trim((string) $data['sebagai_pembayaran']) : '';
+        if ($number === '' || mb_strlen($number) > 100
+            || $recipient === '' || mb_strlen($recipient) > 191
+            || $description === '' || mb_strlen($description) > 500) {
+            throw new InvalidArgumentException('Nomor, penerima, dan uraian pembayaran wajib diisi.');
+        }
+
+        $this->db->trans_begin();
+        try {
+            $record = $this->get_rab_item_kuitansi($itemId);
+            if ($record === null) {
+                throw new InvalidArgumentException('Rincian belanja tidak ditemukan.');
+            }
+            $item = $record['item'];
+            $existing = $item['kuitansi'] ?? null;
+            if ($existing === null && (float) $item['jumlah_netto'] <= 0) {
+                throw new InvalidArgumentException('Nilai netto rincian harus lebih dari nol untuk dibuatkan kuitansi.');
+            }
+
+            $duplicateNumber = $this->config_id()->where('nomor_kuitansi', $number);
+            if (! empty($existing['id'])) {
+                $duplicateNumber->where('id !=', (int) $existing['id']);
+            }
+            if ($duplicateNumber->count_all_results('keuangan_manual_rab_kuitansi_item') > 0) {
+                throw new InvalidArgumentException('Nomor kuitansi sudah digunakan.');
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $values = [
+                'config_id' => $this->config_id,
+                'rab_item_id' => $itemId,
+                'tahun' => $record['tahun'],
+                'keterangan' => (string) $item['keterangan'],
+                'nomor_kuitansi' => $number,
+                'tanggal_bayar' => $existing['tanggal_bayar'] ?? date('Y-m-d'),
+                'penerima' => $recipient,
+                'sebagai_pembayaran' => $description,
+                'pajak_snapshot' => json_encode($item['pajak'] ?? [], JSON_THROW_ON_ERROR),
+                'jumlah_bruto' => number_format((float) $item['jumlah_bruto'], 2, '.', ''),
+                'jumlah_pajak' => number_format((float) $item['jumlah_pajak'], 2, '.', ''),
+                'jumlah_netto' => number_format((float) $item['jumlah_netto'], 2, '.', ''),
+                'jumlah_dibayar' => number_format((float) $item['jumlah_netto'], 2, '.', ''),
+                'selisih_bayar' => '0.00',
+                'updated_at' => $now,
+            ];
+            if (! empty($existing['id'])) {
+                $saved = $this->config_id()
+                    ->where('id', (int) $existing['id'])
+                    ->update('keuangan_manual_rab_kuitansi_item', $values);
+                $receiptId = (int) $existing['id'];
+            } else {
+                $values['created_at'] = $now;
+                $saved = $this->db->insert('keuangan_manual_rab_kuitansi_item', $values);
+                $receiptId = (int) $this->db->insert_id();
+            }
+            if (! $saved || $receiptId < 1 || $this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan kuitansi rincian belanja.');
+            }
+
+            $this->db->trans_commit();
+
+            return $receiptId;
+        } catch (InvalidArgumentException $error) {
+            $this->db->trans_rollback();
+
+            throw $error;
+        } catch (Throwable $error) {
+            $dbError = $this->db->error();
+            $this->db->trans_rollback();
+            $message = trim((string) ($dbError['message'] ?? ''));
+            log_message('error', 'Gagal menyimpan kuitansi mandiri e-RAB: ' . ($message !== '' ? $message : $error->getMessage()));
+
+            return false;
+        }
     }
 
     public function simpan_rab_spp(array $data, array $items, int $id = 0): int|false
@@ -1426,12 +2077,12 @@ class Keuangan_manual_model extends MY_Model
         $type = (string) ($data['jenis_spp'] ?? '');
         $recipient = trim((string) ($data['penerima'] ?? ''));
         $address = trim((string) ($data['alamat'] ?? ''));
+        $nik = trim((string) ($data['nik'] ?? ''));
+        $bankAccountNumber = trim((string) ($data['nomor_rekening_bpd'] ?? ''));
+        $bankAccountName = trim((string) ($data['nama_rekening_bpd'] ?? ''));
         $npwp = trim((string) ($data['npwp'] ?? ''));
         $purpose = trim((string) ($data['keperluan'] ?? ''));
         $status = (string) ($data['status'] ?? 'draft');
-        $receiptNumber = trim((string) ($data['nomor_kuitansi'] ?? ''));
-        $receiptDate = trim((string) ($data['tanggal_bayar'] ?? ''));
-        $paidAmount = trim((string) ($data['jumlah_dibayar'] ?? '0'));
         $validDate = static function (string $value): bool {
             $parsed = DateTime::createFromFormat('!Y-m-d', $value);
 
@@ -1445,26 +2096,18 @@ class Keuangan_manual_model extends MY_Model
             || ! $validDate($date)
             || ! in_array($type, ['LS', 'UP', 'GU', 'TU'], true)
             || $recipient === '' || mb_strlen($recipient) > 191
-            || mb_strlen($address) > 255 || mb_strlen($npwp) > 30
+            || mb_strlen($address) > 255
+            || ($nik !== '' && ! preg_match('/^\d{16}$/', $nik))
+            || mb_strlen($bankAccountNumber) > 50
+            || mb_strlen($bankAccountName) > 191 || mb_strlen($npwp) > 30
             || $purpose === '' || mb_strlen($purpose) > 500
             || ! in_array($status, ['draft', 'diajukan', 'dibayar', 'batal'], true)
-            || ! preg_match($moneyPattern, $paidAmount)
             || count($items) < 1 || count($items) > 500) {
             throw new InvalidArgumentException('Data SPP atau rincian pembayaran tidak valid.');
         }
 
-        if ($status === 'dibayar') {
-            if ($receiptNumber === '' || mb_strlen($receiptNumber) > 100
-                || ! $validDate($receiptDate) || ! preg_match($moneyPattern, $paidAmount)
-                || (float) $paidAmount <= 0) {
-                throw new InvalidArgumentException('Nomor kuitansi, tanggal bayar, dan nilai pembayaran wajib diisi untuk SPP dibayar.');
-            }
-        } elseif ($status === 'batal' && $id < 1) {
+        if ($status === 'batal' && $id < 1) {
             throw new InvalidArgumentException('SPP baru tidak dapat langsung dibuat dengan status batal.');
-        } else {
-            $paidAmount = '0';
-            $receiptNumber = '';
-            $receiptDate = '';
         }
 
         $itemAmounts = [];
@@ -1511,8 +2154,8 @@ class Keuangan_manual_model extends MY_Model
         try {
             $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
             $sourceRows = $this->db->query(
-                'SELECT rab.id AS rab_id, rab.tahun, rab.tahap, item.id AS rab_item_id,
-                    item.keterangan, item.volume, item.harga_satuan
+                'SELECT rab.id AS rab_id, rab.tahun, rab.tahap, rab.bidang_kode, rab.kegiatan,
+                    item.id AS rab_item_id, item.keterangan, item.volume, item.harga_satuan
                  FROM keuangan_manual_rab rab
                  INNER JOIN keuangan_manual_rab_item item
                     ON item.rab_id = rab.id AND item.config_id = rab.config_id
@@ -1524,6 +2167,13 @@ class Keuangan_manual_model extends MY_Model
             )->result_array();
             if (count($sourceRows) !== count($itemIds)) {
                 throw new InvalidArgumentException('Salah satu rincian sumber bukan belanja aktif pada tahun dan tahap yang dipilih.');
+            }
+            $subActivities = [];
+            foreach ($sourceRows as $source) {
+                $subActivities[(string) $source['bidang_kode'] . '|' . (string) $source['kegiatan']] = true;
+            }
+            if (count($subActivities) > 1) {
+                throw new InvalidArgumentException('Satu SPP hanya dapat memuat rincian dari satu sub-kegiatan.');
             }
 
             $taxRows = $this->config_id()
@@ -1603,17 +2253,6 @@ class Keuangan_manual_model extends MY_Model
             }
 
             $netTotal = round($grossTotal - $taxTotal, 2, PHP_ROUND_HALF_UP);
-            if ($status === 'dibayar') {
-                $duplicateReceiptQuery = $this->db
-                    ->where('config_id', $this->config_id)
-                    ->where('nomor_kuitansi', $receiptNumber);
-                if ($id > 0) {
-                    $duplicateReceiptQuery->where('spp_id !=', $id);
-                }
-                if ($duplicateReceiptQuery->count_all_results('keuangan_manual_rab_kuitansi') > 0) {
-                    throw new InvalidArgumentException('Nomor kuitansi sudah digunakan.');
-                }
-            }
 
             $now = date('Y-m-d H:i:s');
             $header = [
@@ -1625,6 +2264,9 @@ class Keuangan_manual_model extends MY_Model
                 'jenis_spp' => $type,
                 'penerima' => $recipient,
                 'alamat' => $address === '' ? null : $address,
+                'nik' => $nik === '' ? null : $nik,
+                'nomor_rekening_bpd' => $bankAccountNumber === '' ? null : $bankAccountNumber,
+                'nama_rekening_bpd' => $bankAccountName === '' ? null : $bankAccountName,
                 'npwp' => $npwp === '' ? null : $npwp,
                 'keperluan' => $purpose,
                 'status' => $status,
@@ -1647,7 +2289,6 @@ class Keuangan_manual_model extends MY_Model
                     $this->config_id()->where_in('spp_item_id', $oldItemIds)->delete('keuangan_manual_rab_spp_item_pajak');
                 }
                 $this->config_id()->where('spp_id', $id)->delete('keuangan_manual_rab_spp_item');
-                $this->config_id()->where('spp_id', $id)->delete('keuangan_manual_rab_kuitansi');
             } else {
                 $header['created_at'] = $now;
                 $this->db->insert('keuangan_manual_rab_spp', $header);
@@ -1685,26 +2326,6 @@ class Keuangan_manual_model extends MY_Model
                     ])) {
                         throw new RuntimeException('Gagal menyimpan snapshot pajak SPP.');
                     }
-                }
-            }
-
-            if ($status === 'dibayar') {
-                $paid = (float) $paidAmount;
-                if (! $this->db->insert('keuangan_manual_rab_kuitansi', [
-                    'config_id' => $this->config_id,
-                    'spp_id' => $id,
-                    'tahun' => $year,
-                    'nomor_kuitansi' => $receiptNumber,
-                    'tanggal_bayar' => $receiptDate,
-                    'penerima' => $recipient,
-                    'alamat' => $address === '' ? null : $address,
-                    'npwp' => $npwp === '' ? null : $npwp,
-                    'jumlah_dibayar' => number_format($paid, 2, '.', ''),
-                    'selisih_bayar' => number_format(round($paid - $netTotal, 2, PHP_ROUND_HALF_UP), 2, '.', ''),
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ])) {
-                    throw new RuntimeException('Gagal menyimpan data kuitansi.');
                 }
             }
 
@@ -1805,6 +2426,13 @@ class Keuangan_manual_model extends MY_Model
                 if (count($activityParts) >= 2) {
                     $row['kd_sub_bidang'] = $activityParts[0] . '.' . $activityParts[1];
                     $row['nama_sub_bidang'] = $row['kd_sub_bidang'];
+                    foreach ($references['sub_bidang'] as $subBidang) {
+                        if ((int) $subBidang['id'] === (int) $kegiatan['parent_id']) {
+                            $row['kd_sub_bidang'] = $subBidang['kode'];
+                            $row['nama_sub_bidang'] = $subBidang['nama'];
+                            break;
+                        }
+                    }
                 }
                 break;
             }
