@@ -28,6 +28,11 @@ $actions = [
                             <?= html_escape($label) ?>
                         </a>
                     <?php endforeach; ?>
+                    <?php if ($pos === 'belanja'): ?>
+                        <a class="list-group-item" href="<?= site_url('keuangan_manual/spp_rab?' . http_build_query(['tahun_anggaran' => $finance_filter_year, 'tahap' => 'murni'])) ?>">
+                            SPP &amp; Kuitansi
+                        </a>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

@@ -68,9 +68,9 @@ defined('BASEPATH') || exit('No direct script access allowed');
 				<?php if (can('u')): ?>
 					<a href="#" class="btn btn-social btn-flat btn-success btn-sm visible-xs-block visible-sm-inline-block visible-md-inline-block visible-lg-inline-block" data-toggle="modal" data-target="#ModalAdd"><i class="fa fa-plus"></i> Tambah Data</a>
 					<a href="#" id="btn_salin" class="btn btn-social btn-flat btn-success btn-sm visible-xs-block visible-sm-inline-block visible-md-inline-block visible-lg-inline-block"><i class="fa fa-plus"></i>Tambah Template</a>
-					<?php if (can('u')): ?>
-						<a href="#confirm-delete" title="Hapus Data" onclick="deleteAllBox('mainform', '<?=site_url('keuangan_manual/delete_all')?>')" class="btn btn-social btn-flat btn-danger btn-sm visible-xs-block visible-sm-inline-block visible-md-inline-block visible-lg-inline-block hapus-terpilih"><i class='fa fa-trash-o'></i> Hapus Data Terpilih</a>
-					<?php endif; ?>
+				<?php endif; ?>
+				<?php if (can('h')): ?>
+					<a href="#confirm-delete" title="Hapus Data" onclick="deleteAllBox('mainform', '<?=site_url('keuangan_manual/delete_all')?>')" class="btn btn-social btn-flat btn-danger btn-sm visible-xs-block visible-sm-inline-block visible-md-inline-block visible-lg-inline-block hapus-terpilih"><i class='fa fa-trash-o'></i> Hapus Data Terpilih</a>
 				<?php endif; ?>
 			</div>
 			<div class="box-body">
@@ -153,7 +153,7 @@ defined('BASEPATH') || exit('No direct script access allowed');
 						<select class="form-control input-sm select2" id="Kd_Rincian_pd" name="Kd_Rincian_pd">
 							<option value="">Pilih Rekening Pendapatan</option>
 							<?php foreach ($lpendapatan as $data): ?>
-								<option value="<?= $data['Jenis']?> <?= $data['Nama_Jenis']?>" <?= selected($main['Kd_Rincian'], $data['Jenis']); ?>><?= $data['Jenis'] ?> <?= $data['Nama_Jenis']?></option>
+								<option value="<?= $data['Jenis']?> <?= $data['Nama_Jenis']?>"><?= $data['Jenis'] ?> <?= $data['Nama_Jenis']?></option>
 							<?php endforeach; ?>
 						</select>
 					</div>
@@ -163,7 +163,7 @@ defined('BASEPATH') || exit('No direct script access allowed');
 						<select class="form-control input-sm select2" id="Kd_Keg" name="Kd_Keg">
 							<option value="">Pilih Rekening Belanja</option>
 							<?php foreach ($lbelanja as $data): ?>
-								<option value="<?= $data['Kd_Bid']?> <?= $data['Nama_Bidang']?>" <?= selected($main['Kd_Keg'], $data['Kd_Bid']); ?>><?= $data['Kd_Bid'] ?> <?= $data['Nama_Bidang']?></option>
+								<option value="<?= $data['Kd_Bid']?> <?= $data['Nama_Bidang']?>"><?= $data['Kd_Bid'] ?> <?= $data['Nama_Bidang']?></option>
 							<?php endforeach; ?>
 						</select>
 					</div>
@@ -173,7 +173,7 @@ defined('BASEPATH') || exit('No direct script access allowed');
 						<select class="form-control input-sm select2" id="Kd_Rincian_by" name="Kd_Rincian_by">
 							<option value="">Pilih Rekening Pembiayaan</option>
 							<?php foreach ($lbiaya as $data): ?>
-								<option value="<?= $data['Jenis']?> <?= $data['Nama_Jenis']?>" <?= selected($main['Kd_Rincian'], $data['Jenis']); ?>><?= $data['Jenis'] ?> <?= $data['Nama_Jenis']?></option>
+								<option value="<?= $data['Jenis']?> <?= $data['Nama_Jenis']?>"><?= $data['Jenis'] ?> <?= $data['Nama_Jenis']?></option>
 							<?php endforeach; ?>
 						</select>
 					</div>
@@ -221,7 +221,7 @@ defined('BASEPATH') || exit('No direct script access allowed');
 						<select class="form-control input-sm select2 required" id="Kd_Akun2" name="Kd_Akun_edit" disabled>
 							<option value="">Pilih Jenis Anggaran</option>
 							<?php foreach ($lakun as $data): ?>
-								<option value="<?= $data['Akun']?><?= $data['Nama_Akun']?>" <?= selected($main['Kd_Akun'], $data['Akun']); ?>><?= $data['Akun'] ?><?= $data['Nama_Akun']?></option>
+								<option value="<?= $data['Akun']?><?= $data['Nama_Akun']?>"><?= $data['Akun'] ?><?= $data['Nama_Akun']?></option>
 							<?php endforeach; ?>
 						</select>
 					</div>

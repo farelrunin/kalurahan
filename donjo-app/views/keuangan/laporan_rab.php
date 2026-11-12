@@ -12,11 +12,40 @@ $reportTypes = [
     'konsolidasi' => 'Perubahan APBDes (Konsolidasian)',
 ];
 $money = static fn ($value): string => 'Rp ' . number_format((float) $value, 0, ',', '.');
+$reportMoney = static fn ($value): string => number_format((float) $value, 2, '.', ',');
+$reportVolume = static fn ($value): string => number_format((float) $value, 2, '.', '');
 $summary = $summary ?? [];
 $months = [1 => 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+$isPrimaryReport = in_array($report_key, ['pendapatan', 'belanja', 'pembiayaan'], true);
 
 ?>
 <style>
+	.report-primary, .report-extra { border-collapse: collapse !important; font-size: 14px; }
+	.report-primary td, .report-primary th, .report-extra td, .report-extra th {
+		border: 1px solid #ddd !important;
+		padding: 7px 8px !important;
+	}
+	.report-primary th, .report-extra th { text-align: center; vertical-align: middle !important; }
+	.report-primary tbody tr, .report-extra tbody tr { background: #fff !important; }
+	.report-primary .report-metadata { background: #f5f5f5; }
+	.report-primary .report-account { font-weight: 600; }
+	.report-primary .report-package, .report-primary .report-activity_total { font-weight: 700; }
+	.report-primary .report-section { background: #e8eef3; font-weight: 700; }
+	.report-primary .report-subtotal, .report-primary .report-grand_total { font-weight: 700; }
+	.report-primary .report-grand_total { border-top: 2px solid #444; }
+	.report-primary .report-spacer td { height: 10px; padding: 0 !important; border: 0; }
+	.report-primary .report-header th { background: #f5f5f5; text-align: center; }
+	.report-primary-pendapatan, .report-primary-pembiayaan { font-size: 15px; }
+	.report-primary-pendapatan .report-account { font-weight: 400; }
+	.report-primary-pendapatan .report-account.report-level-0 td:nth-child(-n+2),
+	.report-primary-pendapatan .report-account.report-level-1 td:nth-child(-n+2),
+	.report-primary-pendapatan .report-account.report-level-2 td:nth-child(-n+2) { font-weight: 700; }
+	.report-primary-pembiayaan .report-account { font-weight: 400; }
+	.report-primary-pembiayaan .report-account.report-level-0 td:nth-child(-n+2),
+	.report-primary-pembiayaan .report-account.report-level-1 td:nth-child(-n+2),
+	.report-primary-pembiayaan .report-account.report-level-2 td:nth-child(-n+2) { font-weight: 700; }
+	.report-opensid-extra { margin: 0 0 15px; }
+	.report-opensid-extra summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
 	@media print {
 		.no-print, .content-header .breadcrumb, .main-footer, .main-sidebar { display: none !important; }
 		.content-wrapper { margin-left: 0 !important; }
@@ -28,7 +57,7 @@ $months = [1 => 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', '
 </style>
 <div class="content-wrapper">
 	<section class="content-header">
-		<h1>Laporan Keuangan e-RAB</h1>
+		<h1><?= html_escape($report_title) ?></h1>
 		<ol class="breadcrumb">
 			<li><a href="<?= site_url('beranda') ?>"><i class="fa fa-home"></i> Beranda</a></li>
 			<li><a href="<?= site_url('keuangan_manual/manual_apbdes') ?>">Keuangan</a></li>
@@ -39,7 +68,17 @@ $months = [1 => 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', '
 	<section class="content" id="maincontent">
 		<div class="box box-info">
 			<div class="box-header with-border">
-				<h3 class="box-title"><?= html_escape($report_title) ?></h3>
+				<h3 class="box-title">
+					<?= html_escape([
+						'pendapatan' => 'PENDAPATAN',
+						'belanja' => 'BELANJA',
+						'pembiayaan' => 'PEMBIAYAAN',
+						'apbdes' => 'ANGGARAN PENDAPATAN DAN BELANJA DESA (APBDes)',
+						'penjabaran' => 'PENJABARAN ANGGARAN PENDAPATAN DAN BELANJA DESA',
+						'sumber_dana' => 'APBDes PER SUMBER DANA',
+						'konsolidasi' => 'PERUBAHAN ANGGARAN PENDAPATAN DAN BELANJA DESA (APBDes)',
+					][$report_key] ?? $report_title) ?>
+				</h3>
 				<div class="box-tools pull-right no-print">
 					<a href="<?= site_url('keuangan_manual/parameter_rab') ?>" class="btn btn-default btn-sm">
 						<i class="fa fa-gears"></i> Parameter Keuangan
@@ -115,141 +154,236 @@ $months = [1 => 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', '
 					</div>
 					<button type="submit" class="btn btn-primary"><i class="fa fa-search"></i> Tampilkan</button>
 					<a href="<?= html_escape($export_url) ?>" class="btn btn-success"><i class="fa fa-file-excel-o"></i> Ekspor Excel</a>
-					<button type="button" class="btn btn-default" onclick="window.print()"><i class="fa fa-print"></i> Cetak / Simpan PDF</button>
+					<button type="button" class="btn btn-default" onclick="window.print()"><i class="fa fa-print"></i> Cetak PDF</button>
 				</form>
 
 				<hr>
+				<?php if (! empty($source_match) && (
+					($source_match['expected'] !== null && $source_match['matched'] !== $source_match['expected'])
+					|| $source_match['unmatched'] > 0
+				)): ?>
+					<div class="alert alert-warning">
+						Struktur paket sumber Belanja 2027 Murni belum sepenuhnya cocok. Rincian terpetakan:
+						<?= (int) $source_match['matched'] ?>
+						<?php if ($source_match['expected'] !== null): ?>dari <?= (int) $source_match['expected'] ?><?php endif; ?>;
+						rincian lokal yang tidak cocok: <?= (int) $source_match['unmatched'] ?>
+						(kegiatan tidak cocok: <?= (int) $source_match['activity_unmatched'] ?>,
+						rincian: <?= (int) $source_match['item_unmatched'] ?>).
+					</div>
+				<?php endif; ?>
 				<p class="text-muted">
 					Periode: <?= $filters['tahun'] !== '' ? html_escape($filters['tahun']) : 'Semua tahun' ?>
 					<?= $filters['tahap'] !== '' ? ' · ' . html_escape(ucfirst($filters['tahap'])) : '' ?>
 				</p>
 
-				<?php if (in_array($report_key, ['apbdes', 'konsolidasi'], true)): ?>
+				<?php if ($isPrimaryReport): ?>
 					<div class="table-responsive">
-						<table class="table table-bordered table-striped">
+						<table class="table table-bordered report-primary report-primary-<?= html_escape($report_key) ?>">
 							<thead>
-								<tr><th>Komponen APBDes</th><th class="text-right">Semula</th><th class="text-right">Menjadi</th><th class="text-right">Selisih</th></tr>
+								<?php if ($report_key === 'belanja'): ?>
+									<tr>
+										<th>KODE</th>
+										<th>URAIAN</th>
+										<th>SUMBERDANA</th>
+										<th>VOLUME</th>
+										<th>HARGA SATUAN</th>
+										<th>JUMLAH</th>
+									</tr>
+								<?php else: ?>
+									<tr>
+										<th rowspan="2">KODE</th>
+										<th colspan="2" rowspan="2">URAIAN</th>
+										<th colspan="3">ANGGARAN</th>
+									</tr>
+									<tr>
+										<th>VOLUME</th>
+										<th>HARGA SATUAN</th>
+										<th>JUMLAH</th>
+									</tr>
+								<?php endif; ?>
 							</thead>
 							<tbody>
-								<?php foreach ([
-									'Pendapatan' => ['pendapatan_semula', 'pendapatan_menjadi'],
-									'Belanja' => ['belanja_semula', 'belanja_menjadi'],
-									'Surplus / (Defisit)' => ['surplus_semula', 'surplus_menjadi'],
-									'Pembiayaan Netto' => ['pembiayaan_netto_semula', 'pembiayaan_netto_menjadi'],
-									'SiLPA Akhir' => ['silpa_semula', 'silpa_menjadi'],
-								] as $label => [$oldKey, $newKey]): ?>
-									<tr>
-										<th><?= html_escape($label) ?></th>
-										<td class="text-right"><?= $money($summary[$oldKey] ?? 0) ?></td>
-										<td class="text-right"><?= $money($summary[$newKey] ?? 0) ?></td>
-										<td class="text-right"><?= $money(($summary[$newKey] ?? 0) - ($summary[$oldKey] ?? 0)) ?></td>
-									</tr>
+								<?php foreach ($table_rows as $row): ?>
+									<?php if ($row['kind'] === 'spacer'): ?>
+										<tr class="report-spacer"><td colspan="6"></td></tr>
+									<?php elseif ($row['kind'] === 'header'): ?>
+										<tr class="report-header">
+											<th>KODE</th>
+											<th>URAIAN</th>
+											<th>SUMBERDANA</th>
+											<th>VOLUME</th>
+											<th>HARGA SATUAN</th>
+											<th>JUMLAH</th>
+										</tr>
+									<?php elseif ($row['kind'] === 'metadata'): ?>
+										<tr class="report-metadata">
+											<th><?= html_escape($row['kode']) ?></th>
+											<td colspan="5"><?= html_escape($row['uraian']) ?></td>
+										</tr>
+									<?php elseif ($row['kind'] === 'section'): ?>
+										<tr class="report-section">
+											<th colspan="6"><?= html_escape($row['uraian']) ?></th>
+										</tr>
+									<?php else: ?>
+										<tr class="report-<?= html_escape($row['kind']) ?> report-level-<?= (int) $row['level'] ?>">
+											<td><?= html_escape($row['kode']) ?></td>
+											<td style="padding-left: <?= 8 + ((int) $row['level'] * 16) ?>px !important;">
+												<?= html_escape($row['uraian']) ?>
+											</td>
+											<td><?= html_escape($row['sumber_dana']) ?></td>
+											<td class="text-right">
+												<?= $row['volume'] === null ? '' : ($report_key === 'belanja' ? $reportVolume($row['volume']) : $reportMoney($row['volume'])) . (trim((string) ($row['satuan'] ?? '')) !== '' ? ' ' . html_escape((string) $row['satuan']) : '') ?>
+											</td>
+											<td class="text-right"><?= $row['harga_satuan'] === null ? '' : $reportMoney($row['harga_satuan']) ?></td>
+											<td class="text-right"><?= $row['jumlah'] === null ? '' : $reportMoney($row['jumlah']) ?></td>
+										</tr>
+									<?php endif; ?>
 								<?php endforeach; ?>
-							</tbody>
-						</table>
-					</div>
-				<?php endif; ?>
-
-				<?php if ($filters['tahun'] !== ''): ?>
-					<h4>Komparasi Anggaran dan Realisasi per Rekening (<?= html_escape($filters['tahun']) ?>)</h4>
-					<p class="text-muted">
-						Realisasi bersumber dari APBDes manual. Pencocokan dilakukan berdasarkan tahun, jenis, dan kode rekening,
-						bukan per kegiatan atau sumber dana; baris yang tidak memiliki pasangan ditandai pada kolom status.
-					</p>
-					<div class="table-responsive">
-						<table class="table table-bordered table-striped table-hover">
-							<thead>
-								<tr>
-									<th>Jenis</th>
-									<th>Kode Rekening</th>
-									<th>Uraian</th>
-									<th class="text-right">e-RAB Murni</th>
-									<th class="text-right">e-RAB Perubahan</th>
-									<th class="text-right">Anggaran APBDes Manual</th>
-									<th class="text-right">Realisasi APBDes Manual</th>
-									<th>Status Pencocokan</th>
-								</tr>
-							</thead>
-							<tbody>
-								<?php foreach ($account_comparison as $comparison): ?>
-									<tr>
-										<td><?= html_escape($comparison['jenis']) ?></td>
-										<td><?= html_escape($comparison['kode']) ?></td>
-										<td><?= html_escape($comparison['uraian'] !== '' ? $comparison['uraian'] : '-') ?></td>
-										<td class="text-right"><?= $money($comparison['murni']) ?></td>
-										<td class="text-right"><?= $money($comparison['perubahan']) ?></td>
-										<td class="text-right"><?= $money($comparison['anggaran_manual']) ?></td>
-										<td class="text-right"><?= $money($comparison['realisasi_manual']) ?></td>
-										<td><?= html_escape($comparison['status']) ?></td>
-									</tr>
-								<?php endforeach; ?>
-								<?php if ($account_comparison === []): ?>
-									<tr><td colspan="8" class="text-center">Belum ada data e-RAB atau APBDes manual untuk tahun ini.</td></tr>
+								<?php if ($table_rows === []): ?>
+									<tr><td colspan="6" class="text-center">Belum ada data e-RAB untuk filter ini.</td></tr>
 								<?php endif; ?>
 							</tbody>
 						</table>
 					</div>
-				<?php endif; ?>
-
-				<div class="table-responsive">
-					<table class="table table-bordered table-striped table-hover">
-						<thead>
-							<tr>
-								<th>Tahun / Tahap</th>
-								<th>Pos / Kode Rekening</th>
-								<th>Uraian / Kegiatan</th>
-								<th>Output / Item</th>
-								<th>Detail Kegiatan</th>
-								<th>Sumber Dana</th>
-								<th class="text-right">Volume</th>
-								<th class="text-right">Harga Satuan</th>
-								<th class="text-right">Semula</th>
-								<th class="text-right">Menjadi</th>
-								<th class="text-right">Selisih</th>
-							</tr>
-						</thead>
-						<tbody>
-							<?php foreach ($rows as $row): ?>
-								<tr>
-									<td><?= html_escape($row['tahun'] . ' / ' . $row['tahap_label']) ?></td>
-									<td>
-										<?= html_escape(strtoupper($row['jenis']) . ' / ' . ($row['rekening_kode'] ?? '-')) ?>
-										<?php if (! empty($row['klasifikasi_belanja'])): ?><br><small><?= html_escape('Belanja ' . $row['klasifikasi_belanja']) ?></small><?php endif; ?>
-									</td>
-									<td>
-										<?= html_escape($row['rekening_nama'] ?? '-') ?>
-										<?php if (! empty($row['kegiatan'])): ?><br><small><?= html_escape(($row['bidang_kode'] ?? '') . ' ' . $row['kegiatan']) ?></small><?php endif; ?>
-									</td>
-									<td>
-										<?= html_escape($row['output'] ?: '-') ?>
-										<?php if (! empty($row['keterangan'])): ?><br><small><?= html_escape($row['keterangan']) ?></small><?php endif; ?>
-									</td>
-									<td>
-										<?php if (! empty($row['bulan_mulai']) || ! empty($row['bulan_selesai'])): ?>
-											<?= html_escape(($months[(int) $row['bulan_mulai']] ?? '-') . '–' . ($months[(int) $row['bulan_selesai']] ?? '-')) ?><br>
+				<?php else: ?>
+					<div class="table-responsive">
+						<table class="table table-bordered report-extra report-extra-<?= html_escape($report_key) ?>">
+							<thead>
+								<?php if (in_array($report_key, ['apbdes', 'sumber_dana'], true)): ?>
+									<tr>
+										<th>Kode</th>
+										<th>Rekening</th>
+										<th>Uraian</th>
+										<th>Anggaran (Rp)</th>
+										<th>Sumberdana</th>
+									</tr>
+								<?php elseif ($report_key === 'penjabaran'): ?>
+									<tr>
+										<th>Kode</th>
+										<th>Rekening</th>
+										<th>Uraian</th>
+										<th>Volume</th>
+										<th>Satuan</th>
+										<th>Anggaran (Rp)</th>
+										<th>Sumberdana</th>
+									</tr>
+								<?php else: ?>
+									<tr>
+										<th>Kode</th>
+										<th>Rekening</th>
+										<th>Uraian</th>
+										<th>Semula (Rp)</th>
+										<th>Menjadi (Rp)</th>
+										<th>Bertambah / (Berkurang)</th>
+										<th>Sumberdana</th>
+									</tr>
+								<?php endif; ?>
+							</thead>
+							<tbody>
+								<?php foreach ($detail_table_rows as $row): ?>
+									<tr>
+										<td><?= html_escape($row['kode']) ?></td>
+										<td><?= html_escape($row['rekening']) ?></td>
+										<td>
+											<?= html_escape($row['uraian']) ?>
+											<?php if ($row['kegiatan'] !== ''): ?><br><small><?= html_escape($row['kegiatan']) ?></small><?php endif; ?>
+										</td>
+										<?php if (in_array($report_key, ['apbdes', 'sumber_dana'], true)): ?>
+											<td class="text-right"><?= $reportMoney($row['jumlah_menjadi']) ?></td>
+										<?php elseif ($report_key === 'penjabaran'): ?>
+											<td class="text-right"><?= $reportMoney($row['volume']) ?></td>
+											<td><?= html_escape($row['satuan']) ?></td>
+											<td class="text-right"><?= $reportMoney($row['jumlah_menjadi']) ?></td>
+										<?php else: ?>
+											<td class="text-right"><?= $reportMoney($row['jumlah_semula']) ?></td>
+											<td class="text-right"><?= $reportMoney($row['jumlah_menjadi']) ?></td>
+											<td class="text-right"><?= $reportMoney($row['selisih']) ?></td>
 										<?php endif; ?>
-										<small>
-											Sasaran L/P/RTM:
-											<?= (int) $row['penerima_laki'] ?>/<?= (int) $row['penerima_perempuan'] ?>/<?= (int) $row['penerima_rtm'] ?>
-											<?php if (! empty($row['lokasi'])): ?><br>Lokasi: <?= html_escape($row['lokasi']) ?><?php endif; ?>
-											<?php if (! empty($row['target_sdgs'])): ?><br>SDGs: <?= html_escape($row['target_sdgs']) ?><?php endif; ?>
-											<?php if (! empty($row['pka']) || ! empty($row['tpk'])): ?><br>PKA/TPK: <?= html_escape(($row['pka'] ?: '-') . ' / ' . ($row['tpk'] ?: '-')) ?><?php endif; ?>
-										</small>
-									</td>
-									<td><?= html_escape($row['sumber_dana'] ?? '-') ?></td>
-									<td class="text-right"><?= number_format((float) ($row['volume'] ?? 0), 4, ',', '.') ?> <?= html_escape($row['satuan'] ?? '') ?></td>
-									<td class="text-right"><?= $money($row['harga_satuan'] ?? 0) ?></td>
-									<td class="text-right"><?= $money($row['jumlah_semula']) ?></td>
-									<td class="text-right"><?= $money($row['jumlah_menjadi']) ?></td>
-									<td class="text-right"><?= $money($row['selisih']) ?></td>
-								</tr>
-							<?php endforeach; ?>
-							<?php if ($rows === []): ?>
-								<tr><td colspan="11" class="text-center">Belum ada data e-RAB untuk filter ini.</td></tr>
-							<?php endif; ?>
-						</tbody>
-					</table>
-				</div>
+										<td><?= html_escape($row['sumber_dana']) ?></td>
+									</tr>
+								<?php endforeach; ?>
+								<?php if ($detail_table_rows === []): ?>
+									<tr><td colspan="<?= $report_key === 'penjabaran' || $report_key === 'konsolidasi' ? 7 : 5 ?>" class="text-center">Belum ada data e-RAB untuk filter ini.</td></tr>
+								<?php endif; ?>
+							</tbody>
+						</table>
+					</div>
+					<?php if ($filters['tahun'] !== ''): ?>
+						<details class="report-opensid-extra">
+							<summary>Komparasi Anggaran dan Realisasi OpenSID (<?= html_escape($filters['tahun']) ?>)</summary>
+							<p class="text-muted">
+								Realisasi bersumber dari APBDes manual. Pencocokan dilakukan berdasarkan tahun, jenis, dan kode rekening,
+								bukan per kegiatan atau sumber dana; baris yang tidak memiliki pasangan ditandai pada kolom status.
+							</p>
+							<div class="table-responsive">
+								<table class="table table-bordered table-striped table-hover">
+									<thead>
+										<tr>
+											<th>Jenis</th>
+											<th>Kode Rekening</th>
+											<th>Uraian</th>
+											<th class="text-right">e-RAB Murni</th>
+											<th class="text-right">e-RAB Perubahan</th>
+											<th class="text-right">Anggaran APBDes Manual</th>
+											<th class="text-right">Realisasi APBDes Manual</th>
+											<th>Status Pencocokan</th>
+										</tr>
+									</thead>
+									<tbody>
+										<?php foreach ($account_comparison as $comparison): ?>
+											<tr>
+												<td><?= html_escape($comparison['jenis']) ?></td>
+												<td><?= html_escape($comparison['kode']) ?></td>
+												<td><?= html_escape($comparison['uraian'] !== '' ? $comparison['uraian'] : '-') ?></td>
+												<td class="text-right"><?= $money($comparison['murni']) ?></td>
+												<td class="text-right"><?= $money($comparison['perubahan']) ?></td>
+												<td class="text-right"><?= $money($comparison['anggaran_manual']) ?></td>
+												<td class="text-right"><?= $money($comparison['realisasi_manual']) ?></td>
+												<td><?= html_escape($comparison['status']) ?></td>
+											</tr>
+										<?php endforeach; ?>
+										<?php if ($account_comparison === []): ?>
+											<tr><td colspan="8" class="text-center">Belum ada data e-RAB atau APBDes manual untuk tahun ini.</td></tr>
+										<?php endif; ?>
+									</tbody>
+								</table>
+							</div>
+						</details>
+					<?php endif; ?>
+				<?php endif; ?>
+				<?php if (in_array($report_key, ['apbdes', 'konsolidasi'], true)): ?>
+					<details class="report-opensid-extra">
+						<summary>Ringkasan APBDes OpenSID</summary>
+						<div class="table-responsive">
+							<table class="table table-bordered report-extra">
+								<thead>
+									<tr>
+										<th>Komponen APBDes</th>
+										<th>Semula (Rp)</th>
+										<th>Menjadi (Rp)</th>
+										<th>Selisih (Rp)</th>
+									</tr>
+								</thead>
+								<tbody>
+									<?php foreach ([
+										'Pendapatan' => ['pendapatan_semula', 'pendapatan_menjadi'],
+										'Belanja' => ['belanja_semula', 'belanja_menjadi'],
+										'Surplus / (Defisit)' => ['surplus_semula', 'surplus_menjadi'],
+										'Pembiayaan Netto' => ['pembiayaan_netto_semula', 'pembiayaan_netto_menjadi'],
+										'SiLPA Akhir' => ['silpa_semula', 'silpa_menjadi'],
+									] as $label => [$oldKey, $newKey]): ?>
+										<tr>
+											<td><?= html_escape($label) ?></td>
+											<td class="text-right"><?= $money($summary[$oldKey] ?? 0) ?></td>
+											<td class="text-right"><?= $money($summary[$newKey] ?? 0) ?></td>
+											<td class="text-right"><?= $money(($summary[$newKey] ?? 0) - ($summary[$oldKey] ?? 0)) ?></td>
+										</tr>
+									<?php endforeach; ?>
+								</tbody>
+							</table>
+						</div>
+					</details>
+				<?php endif; ?>
 			</div>
 		</div>
 	</section>

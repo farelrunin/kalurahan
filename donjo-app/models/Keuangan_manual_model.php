@@ -148,7 +148,577 @@ class Keuangan_manual_model extends MY_Model
             'rekening' => $reference('rekening'),
             'output' => $reference('output'),
             'sumber_dana' => $reference('sumber_dana'),
+            'pajak' => $this->list_rab_pajak(true),
         ];
+    }
+
+    public function list_laporan_rekening_hierarki(): array
+    {
+        return [
+            'akun' => $this->db->order_by('Akun')
+                ->get('keuangan_manual_ref_rek1')
+                ->result_array(),
+            'kelompok' => $this->db->order_by('Kelompok')
+                ->get('keuangan_manual_ref_rek2')
+                ->result_array(),
+            'jenis' => $this->db->order_by('Jenis')
+                ->get('keuangan_manual_ref_rek3')
+                ->result_array(),
+        ];
+    }
+
+    public function impor_rab_murni(array $payload, bool $dryRun = false): array
+    {
+        $normalizeAccountCode = static function (string $code): string {
+            $parts = explode('.', trim($code, ". \t\n\r\0\x0B"));
+            if ($parts === [] || count($parts) > 10) {
+                throw new InvalidArgumentException('Kode rekening impor tidak valid.');
+            }
+            foreach ($parts as $part) {
+                if (! ctype_digit($part)) {
+                    throw new InvalidArgumentException('Kode rekening impor tidak valid.');
+                }
+            }
+
+            return implode('.', $parts) . '.';
+        };
+        $normalizeActivityCode = static function (string $code): string {
+            $parts = explode('.', trim($code, ". \t\n\r\0\x0B"));
+            if (count($parts) !== 3) {
+                throw new InvalidArgumentException('Kode kegiatan impor tidak valid.');
+            }
+            foreach ($parts as &$part) {
+                if (! ctype_digit($part)) {
+                    throw new InvalidArgumentException('Kode kegiatan impor tidak valid.');
+                }
+                $part = str_pad((string) (int) $part, 2, '0', STR_PAD_LEFT);
+            }
+            unset($part);
+
+            return implode('.', $parts) . '.';
+        };
+        $normalizeSubBidangCode = static function (string $code): string {
+            $parts = explode('.', trim($code, ". \t\n\r\0\x0B"));
+            if (count($parts) !== 2) {
+                throw new InvalidArgumentException('Kode sub bidang impor tidak valid.');
+            }
+            foreach ($parts as &$part) {
+                if (! ctype_digit($part)) {
+                    throw new InvalidArgumentException('Kode sub bidang impor tidak valid.');
+                }
+                $part = str_pad((string) (int) $part, 2, '0', STR_PAD_LEFT);
+            }
+            unset($part);
+
+            return implode('.', $parts) . '.';
+        };
+        $cleanImportedText = function (string $value): string {
+            $placeholder = '__RAB_LITERAL_PERCENT__';
+            while (strpos($value, $placeholder) !== false) {
+                $placeholder .= '_';
+            }
+
+            return str_replace(
+                $placeholder,
+                '%',
+                $this->security->xss_clean(str_replace('%', $placeholder, $value))
+            );
+        };
+        $year = (int) ($payload['tahun'] ?? 0);
+        if ($year !== 2027
+            || ! is_array($payload['rekening'] ?? null) || ! array_is_list($payload['rekening'])
+            || ! is_array($payload['sumber_dana'] ?? null) || ! array_is_list($payload['sumber_dana'])
+            || ! is_array($payload['kegiatan'] ?? null) || ! array_is_list($payload['kegiatan'])
+            || ! is_array($payload['rabs'] ?? null) || ! array_is_list($payload['rabs'])
+            || count($payload['rekening']) > 2000 || count($payload['sumber_dana']) > 100
+            || count($payload['kegiatan']) > 1000
+            || count($payload['rabs']) > 2000) {
+            throw new InvalidArgumentException('Struktur impor Murni 2027 tidak valid.');
+        }
+
+        $accounts = [];
+        foreach ($payload['rekening'] as $account) {
+            if (! is_array($account) || ! is_scalar($account['kode'] ?? null) || ! is_scalar($account['nama'] ?? null)) {
+                throw new InvalidArgumentException('Referensi rekening impor tidak valid.');
+            }
+            $code = $normalizeAccountCode((string) $account['kode']);
+            $name = trim($cleanImportedText((string) $account['nama']));
+            if (! in_array(substr($code, 0, 1), ['4', '5', '6'], true) || $name === '' || mb_strlen($name) > 191) {
+                throw new InvalidArgumentException('Referensi rekening impor tidak valid: ' . $code);
+            }
+            if (isset($accounts[$code]) && $accounts[$code]['nama'] !== $name) {
+                throw new InvalidArgumentException('Nama rekening impor ganda tidak konsisten: ' . $code);
+            }
+            $accounts[$code] = ['kode' => $code, 'nama' => $name];
+        }
+
+        $funds = [];
+        foreach ($payload['sumber_dana'] as $fund) {
+            if (! is_array($fund) || ! is_scalar($fund['kode'] ?? null)) {
+                throw new InvalidArgumentException('Referensi sumber dana impor tidak valid.');
+            }
+            $code = strtoupper(trim((string) $fund['kode']));
+            if (! preg_match('/^[A-Z0-9\/_-]{1,50}$/', $code)) {
+                throw new InvalidArgumentException('Kode sumber dana impor tidak valid.');
+            }
+            $funds[$code] = $code;
+        }
+
+        $existingAccounts = $this->config_id()
+            ->where('jenis', 'rekening')
+            ->get('keuangan_manual_ref_parameter')
+            ->result_array();
+        $existingAccountsByCode = [];
+        foreach ($existingAccounts as $account) {
+            try {
+                $existingAccountsByCode[$normalizeAccountCode((string) $account['kode'])] = $account;
+            } catch (InvalidArgumentException) {
+                continue;
+            }
+        }
+        $existingFunds = $this->config_id()
+            ->where('jenis', 'sumber_dana')
+            ->get('keuangan_manual_ref_parameter')
+            ->result_array();
+        $existingFundsByCode = [];
+        foreach ($existingFunds as $fund) {
+            $existingFundsByCode[strtoupper((string) $fund['kode'])] = $fund;
+        }
+
+        $activities = $this->config_id()
+            ->where('jenis', 'kegiatan')
+            ->where('aktif', 1)
+            ->get('keuangan_manual_ref_parameter')
+            ->result_array();
+        $subBidangRows = $this->config_id()
+            ->where('jenis', 'sub_bidang')
+            ->where('aktif', 1)
+            ->get('keuangan_manual_ref_parameter')
+            ->result_array();
+        $bidangRows = $this->config_id()
+            ->where('jenis', 'bidang')
+            ->where('aktif', 1)
+            ->get('keuangan_manual_ref_parameter')
+            ->result_array();
+        $activitiesByCode = [];
+        foreach ($activities as $activity) {
+            try {
+                $activitiesByCode[$normalizeActivityCode((string) $activity['kode'])] = $activity;
+            } catch (InvalidArgumentException) {
+                continue;
+            }
+        }
+        $subBidangById = [];
+        foreach ($subBidangRows as $subBidang) {
+            $subBidangById[(int) $subBidang['id']] = $subBidang;
+        }
+        $bidangById = [];
+        foreach ($bidangRows as $bidang) {
+            $bidangById[(int) $bidang['id']] = $bidang;
+        }
+
+        $subBidangByCode = [];
+        foreach ($subBidangRows as $subBidang) {
+            try {
+                $subBidangByCode[$normalizeSubBidangCode((string) $subBidang['kode'])] = $subBidang;
+            } catch (InvalidArgumentException) {
+                continue;
+            }
+        }
+        $sourceActivities = [];
+        $activitiesToAdd = [];
+        $activityNameMismatches = 0;
+        foreach ($payload['kegiatan'] as $sourceActivity) {
+            if (! is_array($sourceActivity) || ! is_scalar($sourceActivity['kode'] ?? null)
+                || ! is_scalar($sourceActivity['nama'] ?? null)) {
+                throw new InvalidArgumentException('Referensi kegiatan impor tidak valid.');
+            }
+            $code = $normalizeActivityCode((string) $sourceActivity['kode']);
+            $name = trim($cleanImportedText((string) $sourceActivity['nama']));
+            if ($name === '' || mb_strlen($name) > 191) {
+                throw new InvalidArgumentException('Nama kegiatan impor tidak valid: ' . $code);
+            }
+            if (isset($sourceActivities[$code]) && $sourceActivities[$code]['nama'] !== $name) {
+                throw new InvalidArgumentException('Nama kegiatan impor ganda tidak konsisten: ' . $code);
+            }
+            $sourceActivities[$code] = ['kode' => $code, 'nama' => $name];
+            $existingActivity = $activitiesByCode[$code] ?? null;
+            $subCode = $normalizeSubBidangCode(implode('.', array_slice(explode('.', rtrim($code, '.')), 0, 2)) . '.');
+            $subBidang = $subBidangByCode[$subCode] ?? null;
+            if ($subBidang === null) {
+                throw new InvalidArgumentException('Sub bidang kegiatan tidak ditemukan pada referensi lokal: ' . $subCode);
+            }
+            if ($existingActivity === null) {
+                $activitiesToAdd[$code] = [
+                    'kode' => $code,
+                    'nama' => $name,
+                    'parent_id' => (int) $subBidang['id'],
+                ];
+            } else {
+                if ((int) $existingActivity['parent_id'] !== (int) $subBidang['id']) {
+                    throw new InvalidArgumentException('Kegiatan impor memiliki induk yang berbeda dari referensi lokal: ' . $code);
+                }
+                if (trim((string) $existingActivity['nama']) !== $name) {
+                    ++$activityNameMismatches;
+                }
+            }
+        }
+
+        $positionTypes = [
+            'pendapatan' => '4',
+            'belanja' => '5',
+            'pembiayaan' => '6',
+        ];
+        $records = [];
+        $recordKeys = [];
+        $totals = ['pendapatan' => 0.0, 'belanja' => 0.0, 'pembiayaan' => 0.0];
+        $itemCount = 0;
+        foreach ($payload['rabs'] as $record) {
+            if (! is_array($record) || ! is_scalar($record['jenis'] ?? null)
+                || ! is_scalar($record['rekening_kode'] ?? null)
+                || ! is_array($record['items'] ?? null) || ! array_is_list($record['items'])
+                || count($record['items']) < 1 || count($record['items']) > 500) {
+                throw new InvalidArgumentException('Kelompok anggaran impor tidak valid.');
+            }
+            $type = (string) $record['jenis'];
+            if (! isset($positionTypes[$type])) {
+                throw new InvalidArgumentException('Pos anggaran impor tidak valid.');
+            }
+            $accountCode = $normalizeAccountCode((string) $record['rekening_kode']);
+            if (substr($accountCode, 0, 1) !== $positionTypes[$type] || ! isset($accounts[$accountCode])) {
+                throw new InvalidArgumentException('Rekening kelompok anggaran tidak cocok dengan pos: ' . $accountCode);
+            }
+
+            $activity = $subBidang = $bidang = null;
+            if ($type === 'belanja') {
+                if (! is_scalar($record['kegiatan_kode'] ?? null) || ! is_scalar($record['waktu_pelaksanaan'] ?? null)) {
+                    throw new InvalidArgumentException('Kegiatan atau waktu pelaksanaan belanja tidak valid.');
+                }
+                $activityCode = $normalizeActivityCode((string) $record['kegiatan_kode']);
+                $activity = $activitiesByCode[$activityCode] ?? null;
+                $subBidang = $activity !== null ? ($subBidangById[(int) $activity['parent_id']] ?? null) : null;
+                $bidang = $subBidang !== null ? ($bidangById[(int) $subBidang['parent_id']] ?? null) : null;
+                if ($activity === null && isset($activitiesToAdd[$activityCode])) {
+                    $activity = $activitiesToAdd[$activityCode];
+                    $subBidang = $subBidangById[(int) $activity['parent_id']] ?? null;
+                    $bidang = $subBidang !== null ? ($bidangById[(int) $subBidang['parent_id']] ?? null) : null;
+                }
+                if ($activity === null || $subBidang === null || $bidang === null) {
+                    throw new InvalidArgumentException('Kegiatan impor tidak ditemukan pada referensi lokal: ' . $activityCode);
+                }
+                if (! isset($sourceActivities[$activityCode])) {
+                    throw new InvalidArgumentException('Nama kegiatan sumber tidak tersedia: ' . $activityCode);
+                }
+                $duration = trim($cleanImportedText((string) $record['waktu_pelaksanaan']));
+                if ($duration === '' || mb_strlen($duration) > 100) {
+                    throw new InvalidArgumentException('Waktu pelaksanaan belanja harus berisi maksimal 100 karakter.');
+                }
+            } else {
+                $activityCode = '';
+                $duration = null;
+            }
+
+            $output = is_scalar($record['output'] ?? null)
+                ? trim($cleanImportedText((string) $record['output']))
+                : '';
+            if (mb_strlen($output) > 191) {
+                throw new InvalidArgumentException('Output anggaran impor melebihi 191 karakter.');
+            }
+            $recordKey = implode('|', [$type, $accountCode, $activityCode, $output, $duration ?? '']);
+            if (isset($recordKeys[$recordKey])) {
+                throw new InvalidArgumentException('Kelompok anggaran impor berulang: ' . $accountCode);
+            }
+            $recordKeys[$recordKey] = true;
+
+            $items = [];
+            foreach ($record['items'] as $item) {
+                if (! is_array($item)
+                    || ! is_scalar($item['keterangan'] ?? null)
+                    || ! is_scalar($item['volume'] ?? null)
+                    || ! is_scalar($item['harga_satuan'] ?? null)
+                    || ! is_scalar($item['jumlah_sumber'] ?? null)
+                    || ! is_scalar($item['sumber_dana'] ?? null)
+                    || ! is_scalar($item['satuan'] ?? '')) {
+                    throw new InvalidArgumentException('Rincian item impor tidak valid.');
+                }
+                $description = trim($cleanImportedText((string) $item['keterangan']));
+                $volume = trim((string) $item['volume']);
+                $unit = trim($cleanImportedText((string) ($item['satuan'] ?? '')));
+                $price = trim((string) $item['harga_satuan']);
+                $sourceAmount = trim((string) $item['jumlah_sumber']);
+                $fundCode = strtoupper(trim((string) $item['sumber_dana']));
+                if ($description === '' || mb_strlen($description) > 255
+                    || ! preg_match('/^\d{1,14}(?:\.\d{1,4})?$/', $volume)
+                    || ! preg_match('/^\d{1,16}(?:\.\d{1,2})?$/', $price)
+                    || ! preg_match('/^\d{1,16}(?:\.\d{1,2})?$/', $sourceAmount)
+                    || ($unit !== '' && mb_strlen($unit) > 50)
+                    || ! isset($funds[$fundCode])) {
+                    throw new InvalidArgumentException('Isi rincian, volume, harga, atau sumber dana tidak valid.');
+                }
+                if (round((float) $volume * (float) $price, 2, PHP_ROUND_HALF_UP)
+                    !== round((float) $sourceAmount, 2, PHP_ROUND_HALF_UP)) {
+                    throw new InvalidArgumentException('Volume x harga tidak sama dengan jumlah sumber pada item: ' . $description);
+                }
+
+                $amount = (float) $sourceAmount;
+                $totals[$type] += $amount;
+                $items[] = [
+                    'keterangan' => $description,
+                    'volume' => $volume,
+                    'satuan' => $unit === '' ? null : $unit,
+                    'harga_satuan' => $price,
+                    'sumber_dana' => $fundCode,
+                ];
+                ++$itemCount;
+            }
+
+            $existingAccount = $existingAccountsByCode[$accountCode] ?? null;
+            $records[] = [
+                'jenis' => $type,
+                'rekening_kode' => $accountCode,
+                'rekening_nama' => $existingAccount !== null && trim((string) $existingAccount['nama']) !== ''
+                    ? $existingAccount['nama']
+                    : $accounts[$accountCode]['nama'],
+                'bidang_kode' => $bidang['kode'] ?? null,
+                'sub_bidang' => $subBidang['kode'] ?? null,
+                'kegiatan' => $activity['nama'] ?? null,
+                'kegiatan_sumber' => isset($record['kegiatan_kode'])
+                    ? ($sourceActivities[$activityCode]['nama'] ?? null)
+                    : null,
+                'output' => $output === '' ? null : $output,
+                'waktu_pelaksanaan' => $duration,
+                'items' => $items,
+            ];
+        }
+        if ($records === []) {
+            throw new InvalidArgumentException('Tidak ada kelompok anggaran yang dapat diimpor.');
+        }
+
+        if ($this->config_id()->where('tahun', $year)->count_all_results('keuangan_manual_rab') > 0) {
+            throw new InvalidArgumentException('Data e-RAB tahun 2027 sudah ada; impor dibatalkan agar tidak membuat duplikasi.');
+        }
+
+        $accountsToAdd = 0;
+        $accountsToActivate = 0;
+        foreach ($accounts as $code => $_account) {
+            if (! isset($existingAccountsByCode[$code])) {
+                ++$accountsToAdd;
+            } elseif ((int) $existingAccountsByCode[$code]['aktif'] !== 1) {
+                ++$accountsToActivate;
+            }
+        }
+        $fundsToAdd = 0;
+        $fundsToActivate = 0;
+        foreach ($funds as $code => $_fund) {
+            if (! isset($existingFundsByCode[$code])) {
+                ++$fundsToAdd;
+            } elseif ((int) $existingFundsByCode[$code]['aktif'] !== 1) {
+                ++$fundsToActivate;
+            }
+        }
+        $summary = [
+            'dry_run' => $dryRun,
+            'tahun' => $year,
+            'kelompok' => count($records),
+            'rincian' => $itemCount,
+            'kegiatan_ditambahkan' => count($activitiesToAdd),
+            'nama_kegiatan_berbeda' => $activityNameMismatches,
+            'rekening_ditambahkan' => $accountsToAdd,
+            'rekening_diaktifkan' => $accountsToActivate,
+            'sumber_dana_ditambahkan' => $fundsToAdd,
+            'sumber_dana_diaktifkan' => $fundsToActivate,
+            'total' => array_map(static fn (float $amount): string => number_format($amount, 2, '.', ''), $totals),
+        ];
+        if ($dryRun) {
+            return $summary;
+        }
+
+        $this->db->trans_begin();
+        try {
+            if ($this->config_id()->where('tahun', $year)->count_all_results('keuangan_manual_rab') > 0) {
+                throw new InvalidArgumentException('Data e-RAB tahun 2027 sudah ada; impor dibatalkan.');
+            }
+            $now = date('Y-m-d H:i:s');
+            foreach ($accounts as $code => $account) {
+                if (! isset($existingAccountsByCode[$code])) {
+                    $this->db->insert('keuangan_manual_ref_parameter', [
+                        'config_id' => $this->config_id,
+                        'jenis' => 'rekening',
+                        'kode' => $code,
+                        'nama' => $account['nama'],
+                        'aktif' => 1,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                } elseif ((int) $existingAccountsByCode[$code]['aktif'] !== 1) {
+                    $this->config_id()->where('jenis', 'rekening')->where('kode', $code)
+                        ->update(['aktif' => 1, 'updated_at' => $now]);
+                }
+            }
+            foreach ($funds as $code) {
+                if (! isset($existingFundsByCode[$code])) {
+                    $this->db->insert('keuangan_manual_ref_parameter', [
+                        'config_id' => $this->config_id,
+                        'jenis' => 'sumber_dana',
+                        'kode' => $code,
+                        'nama' => $code,
+                        'aktif' => 1,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                } elseif ((int) $existingFundsByCode[$code]['aktif'] !== 1) {
+                    $this->config_id()->where('jenis', 'sumber_dana')->where('kode', $code)
+                        ->update(['aktif' => 1, 'updated_at' => $now]);
+                }
+            }
+            foreach ($activitiesToAdd as $activity) {
+                $this->db->insert('keuangan_manual_ref_parameter', [
+                    'config_id' => $this->config_id,
+                    'jenis' => 'kegiatan',
+                    'kode' => $activity['kode'],
+                    'nama' => $activity['nama'],
+                    'parent_id' => $activity['parent_id'],
+                    'aktif' => 1,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
+            foreach ($records as $record) {
+                $isExpense = $record['jenis'] === 'belanja';
+                $this->db->insert('keuangan_manual_rab', [
+                    'config_id' => $this->config_id,
+                    'tahun' => $year,
+                    'tahap' => 'murni',
+                    'jenis' => $record['jenis'],
+                    'rekening_kode' => $record['rekening_kode'],
+                    'rekening_nama' => $record['rekening_nama'],
+                    'bidang_kode' => $record['bidang_kode'],
+                    'sub_bidang' => $record['sub_bidang'],
+                    'kegiatan' => $record['kegiatan'],
+                    'kegiatan_sumber' => $record['kegiatan_sumber'],
+                    'output' => $record['output'],
+                    'bulan_mulai' => null,
+                    'bulan_selesai' => null,
+                    'waktu_pelaksanaan' => $record['waktu_pelaksanaan'],
+                    'penerima_laki' => 0,
+                    'penerima_perempuan' => 0,
+                    'penerima_rtm' => 0,
+                    'klasifikasi_belanja' => $isExpense ? substr($record['rekening_kode'], 0, 3) : null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+                $rabId = (int) $this->db->insert_id();
+                if ($rabId < 1) {
+                    throw new RuntimeException('Gagal membuat header e-RAB.');
+                }
+                foreach ($record['items'] as $item) {
+                    $this->db->insert('keuangan_manual_rab_item', [
+                        'config_id' => $this->config_id,
+                        'rab_id' => $rabId,
+                        'keterangan' => $item['keterangan'],
+                        'volume' => $item['volume'],
+                        'satuan' => $item['satuan'],
+                        'harga_satuan' => $item['harga_satuan'],
+                        'sumber_dana' => $item['sumber_dana'],
+                        'dihapus' => 0,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ]);
+                }
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Gagal menyimpan data impor e-RAB.');
+            }
+            $this->db->trans_commit();
+        } catch (InvalidArgumentException $error) {
+            $this->db->trans_rollback();
+
+            throw $error;
+        } catch (Throwable $error) {
+            $dbError = $this->db->error();
+            $this->db->trans_rollback();
+            $errorMessage = trim((string) ($dbError['message'] ?? ''));
+            log_message('error', 'Gagal menyimpan impor e-RAB Murni 2027: ' . ($errorMessage !== '' ? $errorMessage : $error->getMessage()));
+
+            throw new RuntimeException('Transaksi impor e-RAB gagal dan telah dibatalkan.', 0, $error);
+        }
+
+        $summary['dry_run'] = false;
+
+        return $summary;
+    }
+
+    public function list_rab_pajak(bool $aktifOnly = false): array
+    {
+        $query = $this->config_id()->order_by('kode');
+        if ($aktifOnly) {
+            $query->where('aktif', 1);
+        }
+
+        return $query->get('keuangan_manual_ref_pajak')->result_array();
+    }
+
+    public function simpan_rab_pajak(array $data, int $id = 0): int|false
+    {
+        $kode = strtoupper(trim((string) ($data['kode'] ?? '')));
+        $nama = trim((string) ($data['nama'] ?? ''));
+        $persentase = trim((string) ($data['persentase'] ?? ''));
+        if (! preg_match('/^[A-Z0-9_-]{1,50}$/', $kode)
+            || $nama === ''
+            || mb_strlen($nama) > 191
+            || ! preg_match('/^\d{1,3}(?:\.\d{1,4})?$/', $persentase)
+            || (float) $persentase > 100) {
+            return false;
+        }
+
+        if ($id > 0 && $this->config_id()->where('id', $id)->count_all_results('keuangan_manual_ref_pajak') !== 1) {
+            return false;
+        }
+
+        if ($id > 0 && empty($data['aktif'])
+            && $this->config_id()->where('pajak_id', $id)->count_all_results('keuangan_manual_rab_item_pajak') > 0) {
+            return false;
+        }
+
+        $duplicate = $this->config_id()->where('kode', $kode);
+        if ($id > 0) {
+            $duplicate->where('id !=', $id);
+        }
+        if ($duplicate->count_all_results('keuangan_manual_ref_pajak') > 0) {
+            return false;
+        }
+
+        $values = [
+            'kode' => $kode,
+            'nama' => $nama,
+            'persentase' => $persentase,
+            'aktif' => (int) ! empty($data['aktif']),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        if ($id > 0) {
+            return $this->config_id()->where('id', $id)->update('keuangan_manual_ref_pajak', $values)
+                ? $id
+                : false;
+        }
+
+        $values['config_id'] = $this->config_id;
+        $values['created_at'] = $values['updated_at'];
+        if (! $this->db->insert('keuangan_manual_ref_pajak', $values)) {
+            return false;
+        }
+
+        return (int) $this->db->insert_id();
+    }
+
+    public function hapus_rab_pajak(int $id): bool
+    {
+        if ($id < 1 || $this->config_id()->where('pajak_id', $id)->count_all_results('keuangan_manual_rab_item_pajak') > 0) {
+            return false;
+        }
+
+        return $this->config_id()->where('id', $id)->delete('keuangan_manual_ref_pajak');
     }
 
     public function list_tahun_rab(): array
@@ -258,6 +828,22 @@ class Keuangan_manual_model extends MY_Model
             ->result_array();
 
         $rab['rincian'] = array_values(array_filter($items, static fn (array $item): bool => 0 === (int) $item['dihapus']));
+        if ($rab['rincian'] !== []) {
+            $itemIds = array_column($rab['rincian'], 'id');
+            $taxRows = $this->config_id()
+                ->where_in('rab_item_id', $itemIds)
+                ->order_by('id')
+                ->get('keuangan_manual_rab_item_pajak')
+                ->result_array();
+            $taxesByItem = [];
+            foreach ($taxRows as $taxRow) {
+                $taxesByItem[(int) $taxRow['rab_item_id']][] = $taxRow;
+            }
+            foreach ($rab['rincian'] as &$item) {
+                $item['pajak'] = $taxesByItem[(int) $item['id']] ?? [];
+            }
+            unset($item);
+        }
         $rab['perbandingan'] = [];
         foreach ($items as $item) {
             $semula = 'perubahan' === $rab['tahap']
@@ -307,6 +893,27 @@ class Keuangan_manual_model extends MY_Model
                     ->where('dihapus', 0)
                     ->get('keuangan_manual_rab_item')
                     ->result_array();
+                $existingItemIds = array_map('intval', array_column($existingItems, 'id'));
+                $committedByItem = [];
+                if ($existingItemIds !== []) {
+                    $commitments = $this->db
+                        ->select('detail.rab_item_id, SUM(detail.jumlah_bruto) AS terpakai')
+                        ->from('keuangan_manual_rab_spp_item detail')
+                        ->join(
+                            'keuangan_manual_rab_spp spp',
+                            'spp.id = detail.spp_id AND spp.config_id = detail.config_id',
+                            'inner'
+                        )
+                        ->where('detail.config_id', $this->config_id)
+                        ->where_in('detail.rab_item_id', $existingItemIds)
+                        ->where('spp.status !=', 'batal')
+                        ->group_by('detail.rab_item_id')
+                        ->get()
+                        ->result_array();
+                    foreach ($commitments as $commitment) {
+                        $committedByItem[(int) $commitment['rab_item_id']] = (float) $commitment['terpakai'];
+                    }
+                }
                 $this->config_id()->where('id', $id)->update('keuangan_manual_rab', $data + ['updated_at' => $now]);
             } else {
                 $data['config_id'] = $this->config_id;
@@ -323,11 +930,16 @@ class Keuangan_manual_model extends MY_Model
             $submittedIds = [];
             foreach ($rincian as $item) {
                 $itemId = (int) ($item['id'] ?? 0);
-                unset($item['id']);
+                $pajakIds = $item['pajak_ids'] ?? [];
+                unset($item['id'], $item['pajak_ids']);
                 $item['updated_at'] = $now;
                 if ($itemId > 0) {
                     if (! isset($existingById[$itemId])) {
                         throw new InvalidArgumentException('ID item bukan bagian dari anggaran ini.');
+                    }
+                    $newBudget = round((float) $item['volume'] * (float) $item['harga_satuan'], 2, PHP_ROUND_HALF_UP);
+                    if (round($committedByItem[$itemId] ?? 0, 2, PHP_ROUND_HALF_UP) > $newBudget) {
+                        throw new InvalidArgumentException('Pagu item tidak dapat dikurangi di bawah nilai SPP yang masih aktif: ' . $item['keterangan']);
                     }
                     $submittedIds[] = $itemId;
                     $this->config_id()
@@ -339,15 +951,29 @@ class Keuangan_manual_model extends MY_Model
                     $item['rab_id'] = $id;
                     $item['created_at'] = $now;
                     $this->db->insert('keuangan_manual_rab_item', $item);
+                    $itemId = (int) $this->db->insert_id();
                 }
+                $this->sync_rab_item_pajak(
+                    $itemId,
+                    $pajakIds,
+                    (string) $item['volume'],
+                    (string) $item['harga_satuan'],
+                    $data['jenis'],
+                    $now
+                );
             }
 
             $removedIds = array_values(array_diff(array_keys($existingById), $submittedIds));
             if ($removedIds !== []) {
+                if ($this->config_id()->where_in('rab_item_id', $removedIds)->count_all_results('keuangan_manual_rab_spp_item') > 0) {
+                    throw new InvalidArgumentException('Rincian yang sudah digunakan pada SPP tidak dapat dihapus.');
+                }
                 if ('perubahan' === $data['tahap']) {
                     $this->config_id()->where('rab_id', $id)->where_in('id', $removedIds)
                         ->update('keuangan_manual_rab_item', ['dihapus' => 1, 'updated_at' => $now]);
                 } else {
+                    $this->config_id()->where_in('rab_item_id', $removedIds)
+                        ->delete('keuangan_manual_rab_item_pajak');
                     $this->config_id()->where('rab_id', $id)->where_in('id', $removedIds)
                         ->delete('keuangan_manual_rab_item');
                 }
@@ -423,6 +1049,8 @@ class Keuangan_manual_model extends MY_Model
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
+                $newItemId = (int) $this->db->insert_id();
+                $this->copy_rab_item_pajak((int) $item['id'], $newItemId, $now);
             }
 
             if ($this->db->trans_status() === false) {
@@ -440,6 +1068,92 @@ class Keuangan_manual_model extends MY_Model
         return $idPerubahan;
     }
 
+    private function sync_rab_item_pajak(
+        int $itemId,
+        array $pajakIds,
+        string $volume,
+        string $hargaSatuan,
+        string $jenis,
+        string $now
+    ): void {
+        if ($jenis !== 'belanja' && $pajakIds !== []) {
+            throw new InvalidArgumentException('Pajak hanya dapat diterapkan pada rincian belanja.');
+        }
+
+        $pajakIds = array_map('intval', $pajakIds);
+        if (count($pajakIds) !== count(array_unique($pajakIds)) || in_array(0, $pajakIds, true)) {
+            throw new InvalidArgumentException('Pilihan pajak tidak valid.');
+        }
+
+        $existing = $this->config_id()
+            ->where('rab_item_id', $itemId)
+            ->get('keuangan_manual_rab_item_pajak')
+            ->result_array();
+        $existingById = [];
+        foreach ($existing as $tax) {
+            $existingById[(int) $tax['pajak_id']] = $tax;
+        }
+
+        $masters = [];
+        if ($pajakIds !== []) {
+            $masters = $this->config_id()
+                ->where_in('id', $pajakIds)
+                ->where('aktif', 1)
+                ->get('keuangan_manual_ref_pajak')
+                ->result_array();
+            if (count($masters) !== count($pajakIds)) {
+                throw new InvalidArgumentException('Salah satu jenis pajak tidak ditemukan atau tidak aktif.');
+            }
+        }
+
+        $totalRate = 0.0;
+        foreach ($masters as $master) {
+            $taxId = (int) $master['id'];
+            $snapshot = $existingById[$taxId] ?? $master;
+            $rate = (float) $snapshot['persentase'];
+            $totalRate += $rate;
+        }
+        if ($totalRate > 100) {
+            throw new InvalidArgumentException('Jumlah persentase pajak pada satu item tidak boleh melebihi 100%.');
+        }
+
+        $this->config_id()
+            ->where('rab_item_id', $itemId)
+            ->delete('keuangan_manual_rab_item_pajak');
+        foreach ($masters as $master) {
+            $taxId = (int) $master['id'];
+            $snapshot = $existingById[$taxId] ?? $master;
+            $rate = (float) $snapshot['persentase'];
+            $amount = round((float) $volume * (float) $hargaSatuan * $rate / 100, 2, PHP_ROUND_HALF_UP);
+            $this->db->insert('keuangan_manual_rab_item_pajak', [
+                'config_id' => $this->config_id,
+                'rab_item_id' => $itemId,
+                'pajak_id' => $taxId,
+                'nama_pajak' => $snapshot['nama_pajak'] ?? $snapshot['nama'],
+                'persentase' => $snapshot['persentase'],
+                'nilai_pajak' => number_format($amount, 2, '.', ''),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+    }
+
+    private function copy_rab_item_pajak(int $sourceItemId, int $targetItemId, string $now): void
+    {
+        $sourceTaxes = $this->config_id()
+            ->where('rab_item_id', $sourceItemId)
+            ->get('keuangan_manual_rab_item_pajak')
+            ->result_array();
+        foreach ($sourceTaxes as $tax) {
+            unset($tax['id'], $tax['rab_item_id'], $tax['config_id'], $tax['created_at'], $tax['updated_at']);
+            $tax['config_id'] = $this->config_id;
+            $tax['rab_item_id'] = $targetItemId;
+            $tax['created_at'] = $now;
+            $tax['updated_at'] = $now;
+            $this->db->insert('keuangan_manual_rab_item_pajak', $tax);
+        }
+    }
+
     public function salin_rab_tahun_lalu(int $id, int $tahun, string $jenis = 'belanja'): int|false
     {
         $sumber = $this->config_id()
@@ -454,7 +1168,7 @@ class Keuangan_manual_model extends MY_Model
         }
 
         $rincian = $this->config_id()
-            ->select('keterangan, volume, satuan, harga_satuan, sumber_dana')
+            ->select('id, keterangan, volume, satuan, harga_satuan, sumber_dana')
             ->where('rab_id', $id)
             ->where('dihapus', 0)
             ->get('keuangan_manual_rab_item')
@@ -473,12 +1187,15 @@ class Keuangan_manual_model extends MY_Model
             $newId = (int) $this->db->insert_id();
 
             foreach ($rincian as $item) {
+                $sourceItemId = (int) $item['id'];
+                unset($item['id']);
                 $this->db->insert('keuangan_manual_rab_item', $item + [
                     'config_id' => $this->config_id,
                     'rab_id' => $newId,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
+                $this->copy_rab_item_pajak($sourceItemId, (int) $this->db->insert_id(), $now);
             }
 
             if ($this->db->trans_status() === false) {
@@ -502,6 +1219,25 @@ class Keuangan_manual_model extends MY_Model
             return false;
         }
         $this->db->trans_begin();
+        $itemIds = array_column(
+            $this->config_id()
+                ->select('id')
+                ->where('rab_id', $id)
+                ->get('keuangan_manual_rab_item')
+                ->result_array(),
+            'id'
+        );
+        if ($itemIds !== []
+            && $this->config_id()->where_in('rab_item_id', $itemIds)->count_all_results('keuangan_manual_rab_spp_item') > 0) {
+            $this->db->trans_rollback();
+
+            return false;
+        }
+        if ($itemIds !== []) {
+            $this->config_id()
+                ->where_in('rab_item_id', $itemIds)
+                ->delete('keuangan_manual_rab_item_pajak');
+        }
         $this->config_id()->where('rab_id', $id)->delete('keuangan_manual_rab_item');
         $this->config_id()->where('id', $id)->delete('keuangan_manual_rab');
         $deleted = $this->db->affected_rows() > 0;
@@ -513,6 +1249,520 @@ class Keuangan_manual_model extends MY_Model
         $this->db->trans_commit();
 
         return $deleted;
+    }
+
+    public function list_rab_spp(int $tahun, string $tahap): array
+    {
+        $rows = $this->config_id()
+            ->where('tahun', $tahun)
+            ->where('tahap', $tahap)
+            ->order_by('tanggal_spp', 'DESC')
+            ->order_by('id', 'DESC')
+            ->get('keuangan_manual_rab_spp')
+            ->result_array();
+        if ($rows === []) {
+            return [];
+        }
+
+        $sppIds = array_map('intval', array_column($rows, 'id'));
+        $counts = $this->config_id()
+            ->select('spp_id, COUNT(*) AS jumlah_item')
+            ->where_in('spp_id', $sppIds)
+            ->group_by('spp_id')
+            ->get('keuangan_manual_rab_spp_item')
+            ->result_array();
+        $countsById = [];
+        foreach ($counts as $count) {
+            $countsById[(int) $count['spp_id']] = (int) $count['jumlah_item'];
+        }
+        $receipts = $this->config_id()
+            ->where_in('spp_id', $sppIds)
+            ->get('keuangan_manual_rab_kuitansi')
+            ->result_array();
+        $receiptsById = [];
+        foreach ($receipts as $receipt) {
+            $receiptsById[(int) $receipt['spp_id']] = $receipt;
+        }
+        foreach ($rows as &$row) {
+            $row['jumlah_item'] = $countsById[(int) $row['id']] ?? 0;
+            $receipt = $receiptsById[(int) $row['id']] ?? [];
+            $row['nomor_kuitansi'] = $receipt['nomor_kuitansi'] ?? null;
+            $row['tanggal_bayar'] = $receipt['tanggal_bayar'] ?? null;
+            $row['jumlah_dibayar'] = $receipt['jumlah_dibayar'] ?? null;
+            $row['selisih_bayar'] = $receipt['selisih_bayar'] ?? null;
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function list_rab_spp_sources(int $tahun, string $tahap, int $excludeSppId = 0): array
+    {
+        if (! in_array($tahap, ['murni', 'perubahan'], true)) {
+            return [];
+        }
+
+        $rows = $this->db
+            ->select('rab.id AS rab_id, rab.tahun, rab.tahap, rab.rekening_kode, rab.rekening_nama, rab.kegiatan, item.id AS rab_item_id, item.keterangan, item.volume, item.satuan, item.harga_satuan, item.sumber_dana')
+            ->from('keuangan_manual_rab rab')
+            ->join(
+                'keuangan_manual_rab_item item',
+                'item.rab_id = rab.id AND item.config_id = rab.config_id',
+                'inner'
+            )
+            ->where('rab.config_id', $this->config_id)
+            ->where('rab.jenis', 'belanja')
+            ->where('rab.tahun', $tahun)
+            ->where('rab.tahap', $tahap)
+            ->where('item.dihapus', 0)
+            ->order_by('rab.rekening_kode')
+            ->order_by('rab.id')
+            ->order_by('item.id')
+            ->get()
+            ->result_array();
+
+        if ($rows === []) {
+            return [];
+        }
+
+        $itemIds = array_map('intval', array_column($rows, 'rab_item_id'));
+        $taxRows = $this->config_id()
+            ->where_in('rab_item_id', $itemIds)
+            ->order_by('id')
+            ->get('keuangan_manual_rab_item_pajak')
+            ->result_array();
+        $taxesByItem = [];
+        foreach ($taxRows as $tax) {
+            $taxesByItem[(int) $tax['rab_item_id']][] = $tax;
+        }
+
+        $commitmentQuery = $this->db
+            ->select('detail.rab_item_id, SUM(detail.jumlah_bruto) AS terpakai')
+            ->from('keuangan_manual_rab_spp_item detail')
+            ->join(
+                'keuangan_manual_rab_spp spp',
+                'spp.id = detail.spp_id AND spp.config_id = detail.config_id',
+                'inner'
+            )
+            ->where('detail.config_id', $this->config_id)
+            ->where_in('detail.rab_item_id', $itemIds)
+            ->where('spp.status !=', 'batal');
+        if ($excludeSppId > 0) {
+            $commitmentQuery->where('spp.id !=', $excludeSppId);
+        }
+        $commitments = $commitmentQuery
+            ->group_by('detail.rab_item_id')
+            ->get()
+            ->result_array();
+        $usedByItem = [];
+        foreach ($commitments as $commitment) {
+            $usedByItem[(int) $commitment['rab_item_id']] = (float) $commitment['terpakai'];
+        }
+
+        foreach ($rows as &$row) {
+            $itemId = (int) $row['rab_item_id'];
+            $budget = round((float) $row['volume'] * (float) $row['harga_satuan'], 2, PHP_ROUND_HALF_UP);
+            $used = round($usedByItem[$itemId] ?? 0, 2, PHP_ROUND_HALF_UP);
+            $row['jumlah_anggaran'] = $budget;
+            $row['terpakai'] = $used;
+            $row['tersedia'] = max(0, round($budget - $used, 2));
+            $row['pajak'] = $taxesByItem[$itemId] ?? [];
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    public function get_rab_spp(int $id): ?array
+    {
+        $spp = $this->db
+            ->select('spp.*, kuitansi.id AS kuitansi_id, kuitansi.nomor_kuitansi, kuitansi.tanggal_bayar, kuitansi.penerima AS penerima_kuitansi, kuitansi.alamat AS alamat_kuitansi, kuitansi.npwp AS npwp_kuitansi, kuitansi.jumlah_dibayar, kuitansi.selisih_bayar')
+            ->from('keuangan_manual_rab_spp spp')
+            ->join(
+                'keuangan_manual_rab_kuitansi kuitansi',
+                'kuitansi.spp_id = spp.id AND kuitansi.config_id = spp.config_id',
+                'left'
+            )
+            ->where('spp.config_id', $this->config_id)
+            ->where('spp.id', $id)
+            ->get()
+            ->row_array();
+        if (empty($spp)) {
+            return null;
+        }
+
+        $spp['rincian'] = $this->config_id()
+            ->select('id, rab_id, rab_item_id, keterangan, jumlah_bruto')
+            ->where('spp_id', $id)
+            ->order_by('id')
+            ->get('keuangan_manual_rab_spp_item')
+            ->result_array();
+        $itemIds = array_column($spp['rincian'], 'id');
+        $taxRows = $itemIds === []
+            ? []
+            : $this->config_id()
+                ->where_in('spp_item_id', $itemIds)
+                ->order_by('id')
+                ->get('keuangan_manual_rab_spp_item_pajak')
+                ->result_array();
+        $taxesByItem = [];
+        foreach ($taxRows as $tax) {
+            $taxesByItem[(int) $tax['spp_item_id']][] = $tax;
+        }
+        foreach ($spp['rincian'] as &$item) {
+            $item['pajak'] = $taxesByItem[(int) $item['id']] ?? [];
+        }
+        unset($item);
+
+        return $spp;
+    }
+
+    public function simpan_rab_spp(array $data, array $items, int $id = 0): int|false
+    {
+        $year = (int) ($data['tahun'] ?? 0);
+        $stage = (string) ($data['tahap'] ?? '');
+        $number = trim((string) ($data['nomor_spp'] ?? ''));
+        $date = trim((string) ($data['tanggal_spp'] ?? ''));
+        $type = (string) ($data['jenis_spp'] ?? '');
+        $recipient = trim((string) ($data['penerima'] ?? ''));
+        $address = trim((string) ($data['alamat'] ?? ''));
+        $npwp = trim((string) ($data['npwp'] ?? ''));
+        $purpose = trim((string) ($data['keperluan'] ?? ''));
+        $status = (string) ($data['status'] ?? 'draft');
+        $receiptNumber = trim((string) ($data['nomor_kuitansi'] ?? ''));
+        $receiptDate = trim((string) ($data['tanggal_bayar'] ?? ''));
+        $paidAmount = trim((string) ($data['jumlah_dibayar'] ?? '0'));
+        $validDate = static function (string $value): bool {
+            $parsed = DateTime::createFromFormat('!Y-m-d', $value);
+
+            return $parsed !== false && $parsed->format('Y-m-d') === $value;
+        };
+        $moneyPattern = '/^\d{1,16}(?:\.\d{1,2})?$/';
+
+        if ($year < 2000 || $year > 2200
+            || ! in_array($stage, ['murni', 'perubahan'], true)
+            || $number === '' || mb_strlen($number) > 100
+            || ! $validDate($date)
+            || ! in_array($type, ['LS', 'UP', 'GU', 'TU'], true)
+            || $recipient === '' || mb_strlen($recipient) > 191
+            || mb_strlen($address) > 255 || mb_strlen($npwp) > 30
+            || $purpose === '' || mb_strlen($purpose) > 500
+            || ! in_array($status, ['draft', 'diajukan', 'dibayar', 'batal'], true)
+            || ! preg_match($moneyPattern, $paidAmount)
+            || count($items) < 1 || count($items) > 500) {
+            throw new InvalidArgumentException('Data SPP atau rincian pembayaran tidak valid.');
+        }
+
+        if ($status === 'dibayar') {
+            if ($receiptNumber === '' || mb_strlen($receiptNumber) > 100
+                || ! $validDate($receiptDate) || ! preg_match($moneyPattern, $paidAmount)
+                || (float) $paidAmount <= 0) {
+                throw new InvalidArgumentException('Nomor kuitansi, tanggal bayar, dan nilai pembayaran wajib diisi untuk SPP dibayar.');
+            }
+        } elseif ($status === 'batal' && $id < 1) {
+            throw new InvalidArgumentException('SPP baru tidak dapat langsung dibuat dengan status batal.');
+        } else {
+            $paidAmount = '0';
+            $receiptNumber = '';
+            $receiptDate = '';
+        }
+
+        $itemAmounts = [];
+        foreach ($items as $item) {
+            $itemId = is_array($item) && is_scalar($item['rab_item_id'] ?? null)
+                ? (int) $item['rab_item_id']
+                : 0;
+            $amount = is_array($item) && is_scalar($item['jumlah_bruto'] ?? null)
+                ? trim((string) $item['jumlah_bruto'])
+                : '';
+            if ($itemId < 1 || ! preg_match($moneyPattern, $amount) || (float) $amount <= 0
+                || isset($itemAmounts[$itemId])) {
+                throw new InvalidArgumentException('Rincian SPP harus memilih item RAB yang unik dengan nilai bruto lebih dari nol.');
+            }
+            $itemAmounts[$itemId] = (float) $amount;
+        }
+        $itemIds = array_keys($itemAmounts);
+
+        $existing = $id > 0
+            ? $this->config_id()->where('id', $id)->get('keuangan_manual_rab_spp')->row_array()
+            : null;
+        if ($id > 0 && empty($existing)) {
+            return false;
+        }
+        if ($existing && in_array($existing['status'], ['dibayar', 'batal'], true)) {
+            throw new InvalidArgumentException('SPP yang sudah dibayar atau dibatalkan tidak dapat diubah.');
+        }
+        if ($existing && $existing['status'] === 'diajukan' && $status === 'draft') {
+            throw new InvalidArgumentException('SPP yang sudah diajukan tidak dapat dikembalikan ke status draft.');
+        }
+
+        $duplicateNumberQuery = $this->db
+            ->where('config_id', $this->config_id)
+            ->where('tahun', $year)
+            ->where('nomor_spp', $number);
+        if ($id > 0) {
+            $duplicateNumberQuery->where('id !=', $id);
+        }
+        if ($duplicateNumberQuery->count_all_results('keuangan_manual_rab_spp') > 0) {
+            throw new InvalidArgumentException('Nomor SPP sudah digunakan pada tahun tersebut.');
+        }
+
+        $this->db->trans_begin();
+        try {
+            $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+            $sourceRows = $this->db->query(
+                'SELECT rab.id AS rab_id, rab.tahun, rab.tahap, item.id AS rab_item_id,
+                    item.keterangan, item.volume, item.harga_satuan
+                 FROM keuangan_manual_rab rab
+                 INNER JOIN keuangan_manual_rab_item item
+                    ON item.rab_id = rab.id AND item.config_id = rab.config_id
+                 WHERE rab.config_id = ? AND item.config_id = ?
+                    AND rab.tahun = ? AND rab.tahap = ? AND rab.jenis = \'belanja\'
+                    AND item.dihapus = 0 AND item.id IN (' . $placeholders . ')
+                 FOR UPDATE',
+                array_merge([$this->config_id, $this->config_id, $year, $stage], $itemIds)
+            )->result_array();
+            if (count($sourceRows) !== count($itemIds)) {
+                throw new InvalidArgumentException('Salah satu rincian sumber bukan belanja aktif pada tahun dan tahap yang dipilih.');
+            }
+
+            $taxRows = $this->config_id()
+                ->where_in('rab_item_id', $itemIds)
+                ->order_by('id')
+                ->get('keuangan_manual_rab_item_pajak')
+                ->result_array();
+            $taxesByItem = [];
+            foreach ($taxRows as $tax) {
+                $taxesByItem[(int) $tax['rab_item_id']][] = $tax;
+            }
+
+            $committedQuery = $this->db
+                ->select('detail.rab_item_id, SUM(detail.jumlah_bruto) AS terpakai')
+                ->from('keuangan_manual_rab_spp_item detail')
+                ->join(
+                    'keuangan_manual_rab_spp spp',
+                    'spp.id = detail.spp_id AND spp.config_id = detail.config_id',
+                    'inner'
+                )
+                ->where('detail.config_id', $this->config_id)
+                ->where_in('detail.rab_item_id', $itemIds)
+                ->where('spp.status !=', 'batal');
+            if ($id > 0) {
+                $committedQuery->where('spp.id !=', $id);
+            }
+            $committed = $committedQuery
+                ->group_by('detail.rab_item_id')
+                ->get()
+                ->result_array();
+            $committedByItem = [];
+            foreach ($committed as $row) {
+                $committedByItem[(int) $row['rab_item_id']] = (float) $row['terpakai'];
+            }
+
+            $preparedItems = [];
+            $grossTotal = 0.0;
+            $taxTotal = 0.0;
+            foreach ($sourceRows as $source) {
+                $itemId = (int) $source['rab_item_id'];
+                $amount = $itemAmounts[$itemId];
+                $budget = round((float) $source['volume'] * (float) $source['harga_satuan'], 2, PHP_ROUND_HALF_UP);
+                $used = $committedByItem[$itemId] ?? 0.0;
+                if (round($used + $amount, 2, PHP_ROUND_HALF_UP) > $budget) {
+                    throw new InvalidArgumentException('Nilai SPP melebihi sisa anggaran item: ' . $source['keterangan']);
+                }
+
+                $itemTaxes = [];
+                $taxRateTotal = 0.0;
+                foreach ($taxesByItem[$itemId] ?? [] as $tax) {
+                    $rate = (float) $tax['persentase'];
+                    if ($rate < 0 || $rate > 100) {
+                        throw new InvalidArgumentException('Tarif pajak pada rincian RAB tidak valid.');
+                    }
+                    $taxRateTotal += $rate;
+                    $taxAmount = round($amount * $rate / 100, 2, PHP_ROUND_HALF_UP);
+                    $itemTaxes[] = [
+                        'pajak_id' => (int) $tax['pajak_id'],
+                        'nama_pajak' => (string) $tax['nama_pajak'],
+                        'persentase' => number_format($rate, 4, '.', ''),
+                        'nilai_pajak' => number_format($taxAmount, 2, '.', ''),
+                    ];
+                    $taxTotal += $taxAmount;
+                }
+                if ($taxRateTotal > 100) {
+                    throw new InvalidArgumentException('Jumlah tarif pajak pada rincian RAB melebihi 100%.');
+                }
+
+                $preparedItems[] = [
+                    'rab_id' => (int) $source['rab_id'],
+                    'rab_item_id' => $itemId,
+                    'keterangan' => (string) $source['keterangan'],
+                    'jumlah_bruto' => number_format($amount, 2, '.', ''),
+                    'pajak' => $itemTaxes,
+                ];
+                $grossTotal += $amount;
+            }
+
+            $netTotal = round($grossTotal - $taxTotal, 2, PHP_ROUND_HALF_UP);
+            if ($status === 'dibayar') {
+                $duplicateReceiptQuery = $this->db
+                    ->where('config_id', $this->config_id)
+                    ->where('nomor_kuitansi', $receiptNumber);
+                if ($id > 0) {
+                    $duplicateReceiptQuery->where('spp_id !=', $id);
+                }
+                if ($duplicateReceiptQuery->count_all_results('keuangan_manual_rab_kuitansi') > 0) {
+                    throw new InvalidArgumentException('Nomor kuitansi sudah digunakan.');
+                }
+            }
+
+            $now = date('Y-m-d H:i:s');
+            $header = [
+                'config_id' => $this->config_id,
+                'tahun' => $year,
+                'tahap' => $stage,
+                'nomor_spp' => $number,
+                'tanggal_spp' => $date,
+                'jenis_spp' => $type,
+                'penerima' => $recipient,
+                'alamat' => $address === '' ? null : $address,
+                'npwp' => $npwp === '' ? null : $npwp,
+                'keperluan' => $purpose,
+                'status' => $status,
+                'jumlah_bruto' => number_format($grossTotal, 2, '.', ''),
+                'jumlah_pajak' => number_format($taxTotal, 2, '.', ''),
+                'jumlah_netto' => number_format($netTotal, 2, '.', ''),
+                'updated_at' => $now,
+            ];
+            if ($id > 0) {
+                $this->config_id()->where('id', $id)->update('keuangan_manual_rab_spp', $header);
+                $oldItemIds = array_column(
+                    $this->config_id()
+                        ->select('id')
+                        ->where('spp_id', $id)
+                        ->get('keuangan_manual_rab_spp_item')
+                        ->result_array(),
+                    'id'
+                );
+                if ($oldItemIds !== []) {
+                    $this->config_id()->where_in('spp_item_id', $oldItemIds)->delete('keuangan_manual_rab_spp_item_pajak');
+                }
+                $this->config_id()->where('spp_id', $id)->delete('keuangan_manual_rab_spp_item');
+                $this->config_id()->where('spp_id', $id)->delete('keuangan_manual_rab_kuitansi');
+            } else {
+                $header['created_at'] = $now;
+                $this->db->insert('keuangan_manual_rab_spp', $header);
+                $id = (int) $this->db->insert_id();
+            }
+            if ($id < 1) {
+                throw new RuntimeException('Gagal membuat SPP.');
+            }
+
+            foreach ($preparedItems as $item) {
+                $itemData = [
+                    'config_id' => $this->config_id,
+                    'spp_id' => $id,
+                    'rab_id' => $item['rab_id'],
+                    'rab_item_id' => $item['rab_item_id'],
+                    'keterangan' => $item['keterangan'],
+                    'jumlah_bruto' => $item['jumlah_bruto'],
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+                if (! $this->db->insert('keuangan_manual_rab_spp_item', $itemData)) {
+                    throw new RuntimeException('Gagal menyimpan rincian SPP.');
+                }
+                $sppItemId = (int) $this->db->insert_id();
+                foreach ($item['pajak'] as $tax) {
+                    if (! $this->db->insert('keuangan_manual_rab_spp_item_pajak', [
+                        'config_id' => $this->config_id,
+                        'spp_item_id' => $sppItemId,
+                        'pajak_id' => $tax['pajak_id'],
+                        'nama_pajak' => $tax['nama_pajak'],
+                        'persentase' => $tax['persentase'],
+                        'nilai_pajak' => $tax['nilai_pajak'],
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ])) {
+                        throw new RuntimeException('Gagal menyimpan snapshot pajak SPP.');
+                    }
+                }
+            }
+
+            if ($status === 'dibayar') {
+                $paid = (float) $paidAmount;
+                if (! $this->db->insert('keuangan_manual_rab_kuitansi', [
+                    'config_id' => $this->config_id,
+                    'spp_id' => $id,
+                    'tahun' => $year,
+                    'nomor_kuitansi' => $receiptNumber,
+                    'tanggal_bayar' => $receiptDate,
+                    'penerima' => $recipient,
+                    'alamat' => $address === '' ? null : $address,
+                    'npwp' => $npwp === '' ? null : $npwp,
+                    'jumlah_dibayar' => number_format($paid, 2, '.', ''),
+                    'selisih_bayar' => number_format(round($paid - $netTotal, 2, PHP_ROUND_HALF_UP), 2, '.', ''),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ])) {
+                    throw new RuntimeException('Gagal menyimpan data kuitansi.');
+                }
+            }
+
+            if ($this->db->trans_status() === false) {
+                throw new RuntimeException('Transaksi SPP gagal.');
+            }
+            $this->db->trans_commit();
+        } catch (InvalidArgumentException $error) {
+            $this->db->trans_rollback();
+
+            throw $error;
+        } catch (Throwable $error) {
+            $dbError = $this->db->error();
+            $this->db->trans_rollback();
+            $message = trim((string) ($dbError['message'] ?? ''));
+            log_message('error', 'Gagal menyimpan SPP e-RAB: ' . ($message !== '' ? $message : $error->getMessage()));
+
+            return false;
+        }
+
+        return $id;
+    }
+
+    public function hapus_rab_spp(int $id): bool
+    {
+        $spp = $this->config_id()
+            ->where('id', $id)
+            ->get('keuangan_manual_rab_spp')
+            ->row_array();
+        if (empty($spp) || $spp['status'] !== 'draft') {
+            return false;
+        }
+
+        $this->db->trans_begin();
+        $itemIds = array_column(
+            $this->config_id()
+                ->select('id')
+                ->where('spp_id', $id)
+                ->get('keuangan_manual_rab_spp_item')
+                ->result_array(),
+            'id'
+        );
+        if ($itemIds !== []) {
+            $this->config_id()
+                ->where_in('spp_item_id', $itemIds)
+                ->delete('keuangan_manual_rab_spp_item_pajak');
+        }
+        $this->config_id()->where('spp_id', $id)->delete('keuangan_manual_rab_spp_item');
+        $this->config_id()->where('spp_id', $id)->delete('keuangan_manual_rab_kuitansi');
+        $this->config_id()->where('id', $id)->delete('keuangan_manual_rab_spp');
+        if ($this->db->trans_status() === false) {
+            $this->db->trans_rollback();
+
+            return false;
+        }
+        $this->db->trans_commit();
+
+        return true;
     }
 
     private function find_reference(array $rows, string $key, string $value): ?array
@@ -1133,8 +2383,8 @@ class Keuangan_manual_model extends MY_Model
         }
 
         $sql = 'SELECT rab.id AS rab_id, rab.tahun, rab.tahap, rab.jenis, rab.rekening_kode,
-                    rab.rekening_nama, rab.bidang_kode, rab.sub_bidang, rab.kegiatan, rab.output,
-                    rab.klasifikasi_belanja, rab.bulan_mulai, rab.bulan_selesai,
+                    rab.rekening_nama, rab.bidang_kode, rab.sub_bidang, rab.kegiatan, rab.kegiatan_sumber, rab.output,
+                    rab.klasifikasi_belanja, rab.bulan_mulai, rab.bulan_selesai, rab.waktu_pelaksanaan,
                     rab.penerima_laki, rab.penerima_perempuan, rab.penerima_rtm,
                     rab.lokasi, rab.target_sdgs, rab.pka, rab.tpk, rab.data_eksisting,
                     rab.target_tahun_depan, rab.volume_rencana, rab.satuan_rencana,
@@ -1167,6 +2417,7 @@ class Keuangan_manual_model extends MY_Model
 
     public function get_anggaran($id)
     {
+        $hasil = null;
         $hsl = $this->config_id()
             ->where('id', $id)
             ->get($this->tabel);
@@ -1266,6 +2517,7 @@ class Keuangan_manual_model extends MY_Model
 
     public function get_anggaran_tpl()
     {
+        $hasil = null;
         $hsl = $this->db->get('keuangan_manual_rinci_tpl');
 
         if ($hsl->num_rows() > 0) {

@@ -13,7 +13,7 @@ class Migrasi_2026110898 extends MY_model
             ->where('aktif', 1)
             ->update([
                 'aktif' => 0,
-                'updated_at' => now(),
+                'updated_at' => date('Y-m-d H:i:s'),
             ]);
 
         return true;

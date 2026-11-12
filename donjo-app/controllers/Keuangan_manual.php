@@ -71,6 +71,16 @@ class Keuangan_manual extends Admin_Controller
         redirect('keuangan_manual/manual_apbdes');
     }
 
+    public function laporan_anggaran_belanja(): void
+    {
+        isCan('b', 'laporan-rab');
+        $this->sub_modul_ini = 'laporan-belanja';
+
+        $this->render('keuangan/laporan_anggaran_belanja', [
+            'finance_filter_year' => $this->finance_filter_year,
+        ]);
+    }
+
     public function anggaran_rab(?string $pos = null): void
     {
         $positions = [
@@ -178,20 +188,25 @@ class Keuangan_manual extends Admin_Controller
         $data['lbelanja']    = $this->keuangan_manual_model->list_rek_belanja();
         $data['lbiaya']      = $this->keuangan_manual_model->list_rek_biaya();
         $data['lakun']       = $this->keuangan_manual_model->list_akun();
-        $data['main']        = $this->keuangan_manual_model->list_apbdes($data['tahun']);
-
         $this->render('keuangan/manual_apbdes', $data);
     }
 
     public function rincian_rab(?string $pos = null): void
     {
-        isCan('b', 'rincian-rab');
-
         $positions = [
             'pendapatan' => '4.PENDAPATAN',
             'belanja' => '5.BELANJA',
             'pembiayaan' => '6.PEMBIAYAAN',
         ];
+        if ($pos !== null && ! isset($positions[$pos])) {
+            show_404();
+
+            return;
+        }
+
+        $permissionSlug = $this->rab_permission_slug($pos);
+        $this->ensure_rab_access('b', $pos);
+
         $data['initial_pos'] = $positions[$pos] ?? '';
         $this->sub_modul_ini = $data['initial_pos'] === ''
             ? 'rincian-rab'
@@ -235,14 +250,15 @@ class Keuangan_manual extends Admin_Controller
         $data['historical_finance'] = $selectedFinanceYear !== ''
             ? $this->keuangan_manual_model->list_pembiayaan_manual($selectedFinanceYear)
             : [];
-        $data['can_edit'] = can('u');
-        $data['can_delete'] = can('h');
+        $data['can_edit'] = can('u', $permissionSlug) || can('u', 'rincian-rab');
+        $data['can_delete'] = can('h', $permissionSlug) || can('h', 'rincian-rab');
         $data['csrf_name'] = $this->security->get_csrf_token_name();
         $data['csrf_value'] = $this->security->get_csrf_hash();
         $data['api'] = [
             'list'   => site_url('keuangan_manual/data_rab_manual'),
             'get'    => site_url('keuangan_manual/get_rab_manual'),
             'save'   => site_url('keuangan_manual/simpan_rab_manual'),
+            'import' => site_url('keuangan_manual/impor_rab_murni'),
             'copy'   => site_url('keuangan_manual/salin_rab_perubahan'),
             'copy_previous_year' => site_url('keuangan_manual/impor_rab_tahun_lalu'),
             'delete' => site_url('keuangan_manual/hapus_rab_manual'),
@@ -253,8 +269,6 @@ class Keuangan_manual extends Admin_Controller
 
     public function data_rab_manual(): void
     {
-        isCan('b', 'rincian-rab');
-
         $filters = [];
         foreach (['tahun', 'tahap', 'pos', 'kd_bidang', 'kd_sub_bidang', 'kd_kegiatan'] as $key) {
             $rawValue = $this->input->get($key);
@@ -269,13 +283,13 @@ class Keuangan_manual extends Admin_Controller
             }
         }
 
+        $this->ensure_rab_access('b', $filters['pos'] ?? null);
+
         $this->respond_json($this->keuangan_manual_model->list_rab_manual($filters));
     }
 
     public function get_rab_manual($id = null): void
     {
-        isCan('b', 'rincian-rab');
-
         $data = $this->keuangan_manual_model->get_rab_manual((int) $id);
         if (null === $data) {
             $this->respond_json(['message' => 'Data rincian anggaran tidak ditemukan'], 404);
@@ -283,14 +297,18 @@ class Keuangan_manual extends Admin_Controller
             return;
         }
 
+        $this->ensure_rab_access('b', $data['pos'] ?? null);
         $this->respond_json($data);
     }
 
     public function simpan_rab_manual(): void
     {
-        isCan('u', 'rincian-rab');
-
         $post = $this->input->post();
+        $requestedPos = is_array($post) && is_scalar($post['pos'] ?? null)
+            ? trim((string) $post['pos'])
+            : null;
+        $this->ensure_rab_access('u', $requestedPos);
+
         if (! is_array($post) || ! is_string($post['rincian'] ?? null)) {
             $this->respond_json(['message' => 'Data rincian tidak valid'], 422);
 
@@ -328,6 +346,10 @@ class Keuangan_manual extends Admin_Controller
         }
 
         $references = $this->keuangan_manual_model->list_rab_referensi();
+        $allowedTaxIds = array_fill_keys(array_map(
+            static fn (array $tax): string => (string) $tax['id'],
+            $references['pajak']
+        ), true);
         $find = static function (array $rows, string $key, string $value): ?array {
             foreach ($rows as $row) {
                 if ((string) ($row[$key] ?? '') === $value) {
@@ -382,12 +404,27 @@ class Keuangan_manual extends Admin_Controller
 
             return $value;
         };
+        $text = static function (string $value, int $limit, string $label): ?string {
+            $value = trim($value);
+            if (mb_strlen($value) > $limit) {
+                throw new InvalidArgumentException($label . ' melebihi batas ' . $limit . ' karakter.');
+            }
+
+            return $value === '' ? null : $value;
+        };
         try {
             $startMonth = $isBelanja ? $postValue('bulan_mulai') : '';
             $endMonth = $isBelanja ? $postValue('bulan_selesai') : '';
-            if ($isBelanja && (! ctype_digit($startMonth) || ! ctype_digit($endMonth)
-                || (int) $startMonth < 1 || (int) $startMonth > 12
-                || (int) $endMonth < (int) $startMonth || (int) $endMonth > 12)) {
+            $waktuPelaksanaan = $isBelanja
+                ? $text($postValue('waktu_pelaksanaan'), 100, 'Waktu Pelaksanaan')
+                : null;
+            $hasMonthRange = $startMonth !== '' || $endMonth !== '';
+            if ($isBelanja && (
+                ($hasMonthRange && (! ctype_digit($startMonth) || ! ctype_digit($endMonth)
+                    || (int) $startMonth < 1 || (int) $startMonth > 12
+                    || (int) $endMonth < (int) $startMonth || (int) $endMonth > 12))
+                || (! $hasMonthRange && $waktuPelaksanaan === null)
+            )) {
                 throw new InvalidArgumentException('Bulan pelaksanaan harus valid dan bulan mulai tidak boleh melewati bulan selesai.');
             }
 
@@ -407,23 +444,38 @@ class Keuangan_manual extends Admin_Controller
                     throw new InvalidArgumentException('Format baris rincian tidak valid.');
                 }
                 $description = trim((string) ($item['keterangan'] ?? ''));
-                $volume = $number(trim((string) ($item['volume'] ?? '')), '/^\d{1,14}(?:\.\d{1,4})?$/', 'Volume item tidak valid.', false);
+                $volume = $number(trim((string) ($item['volume'] ?? '')), '/^\d{1,14}(?:\.\d{1,4})?$/', 'Volume item tidak valid.');
                 $price = $number(trim((string) ($item['harga_satuan'] ?? '')), '/^\d{1,16}(?:\.\d{1,2})?$/', 'Harga satuan tidak valid.');
                 $unit = trim((string) ($item['satuan'] ?? ''));
                 $fund = trim((string) ($item['sumber_dana'] ?? ''));
                 $itemId = trim((string) ($item['id'] ?? ''));
-                if ($description === '' || mb_strlen($description) > 255 || $unit === '' || mb_strlen($unit) > 50
+                $taxIds = $item['pajak_ids'] ?? [];
+                if (! is_array($taxIds) || ! array_is_list($taxIds) || count($taxIds) > 50) {
+                    throw new InvalidArgumentException('Daftar pilihan pajak tidak valid.');
+                }
+                $normalizedTaxIds = [];
+                foreach ($taxIds as $taxId) {
+                    if (! is_scalar($taxId) || ! ctype_digit((string) $taxId)
+                        || ! isset($allowedTaxIds[(string) $taxId])
+                        || in_array((int) $taxId, $normalizedTaxIds, true)) {
+                        throw new InvalidArgumentException('Jenis pajak tidak ditemukan, tidak aktif, atau dipilih lebih dari sekali.');
+                    }
+                    $normalizedTaxIds[] = (int) $taxId;
+                }
+                if ($description === '' || mb_strlen($description) > 255 || mb_strlen($unit) > 50
                     || ! in_array($fund, $allowedFunds, true)
-                    || ($itemId !== '' && ! ctype_digit($itemId))) {
+                    || ($itemId !== '' && ! ctype_digit($itemId))
+                    || (! $isBelanja && $normalizedTaxIds !== [])) {
                     throw new InvalidArgumentException('Lengkapi semua kolom rincian dengan nilai yang valid.');
                 }
                 $items[] = [
                     'id' => $itemId === '' ? null : (int) $itemId,
                     'keterangan' => $this->security->xss_clean($description),
                     'volume' => $volume,
-                    'satuan' => $this->security->xss_clean($unit),
+                    'satuan' => $unit === '' ? null : $this->security->xss_clean($unit),
                     'harga_satuan' => $price,
                     'sumber_dana' => $fund,
+                    'pajak_ids' => $normalizedTaxIds,
                 ];
             }
             if ($items === [] || count($items) > 500) {
@@ -441,14 +493,6 @@ class Keuangan_manual extends Admin_Controller
 
                 return $number;
             };
-            $text = static function (string $value, int $limit, string $label): ?string {
-                $value = trim($value);
-                if (mb_strlen($value) > $limit) {
-                    throw new InvalidArgumentException($label . ' melebihi batas ' . $limit . ' karakter.');
-                }
-
-                return $value === '' ? null : $value;
-            };
             $idValue = $postValue('id');
             if ($idValue !== '' && ! ctype_digit($idValue)) {
                 throw new InvalidArgumentException('ID anggaran tidak valid.');
@@ -463,9 +507,11 @@ class Keuangan_manual extends Admin_Controller
                 'bidang_kode' => $bidang['kode'] ?? null,
                 'sub_bidang' => $isBelanja ? $subCode : null,
                 'kegiatan' => $kegiatan['nama'] ?? null,
+                'kegiatan_sumber' => $isBelanja ? $text($postValue('kegiatan_sumber'), 191, 'Nama kegiatan sumber') : null,
                 'output' => $isBelanja ? $text($postValue('output'), 191, 'Output') : null,
-                'bulan_mulai' => $isBelanja ? (int) $startMonth : null,
-                'bulan_selesai' => $isBelanja ? (int) $endMonth : null,
+                'bulan_mulai' => $isBelanja && $startMonth !== '' ? (int) $startMonth : null,
+                'bulan_selesai' => $isBelanja && $endMonth !== '' ? (int) $endMonth : null,
+                'waktu_pelaksanaan' => $waktuPelaksanaan,
                 'penerima_laki' => $wholeNumber($isBelanja ? $postValue('penerima_laki') : '', 'Penerima laki-laki'),
                 'penerima_perempuan' => $wholeNumber($isBelanja ? $postValue('penerima_perempuan') : '', 'Penerima perempuan'),
                 'penerima_rtm' => $wholeNumber($isBelanja ? $postValue('penerima_rtm') : '', 'Penerima RTM'),
@@ -506,9 +552,57 @@ class Keuangan_manual extends Admin_Controller
         $this->respond_json(['message' => 'Rincian APBDes berhasil disimpan', 'id' => $id]);
     }
 
+    public function impor_rab_murni(): void
+    {
+        $post = $this->input->post();
+        if (! is_array($post) || ! is_string($post['payload'] ?? null) || strlen($post['payload']) > 5_000_000) {
+            $this->respond_json(['message' => 'Data impor tidak valid atau terlalu besar'], 422);
+
+            return;
+        }
+
+        try {
+            $payload = json_decode($post['payload'], true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            $this->respond_json(['message' => 'Format data impor tidak valid'], 422);
+
+            return;
+        }
+
+        if (! is_array($payload) || (int) ($payload['tahun'] ?? 0) !== 2027) {
+            $this->respond_json(['message' => 'Impor ini hanya menerima data Murni tahun 2027'], 422);
+
+            return;
+        }
+
+        foreach (['4.PENDAPATAN', '5.BELANJA', '6.PEMBIAYAAN'] as $position) {
+            $this->ensure_rab_access('u', $position);
+        }
+
+        $dryRun = in_array($post['dry_run'] ?? null, ['1', 1, true], true);
+        try {
+            $result = $this->keuangan_manual_model->impor_rab_murni($payload, $dryRun);
+        } catch (InvalidArgumentException $error) {
+            $this->respond_json(['message' => $error->getMessage()], 422);
+
+            return;
+        } catch (Throwable $error) {
+            log_message('error', 'Gagal mengimpor e-RAB Murni 2027: ' . $error->getMessage());
+            $this->respond_json(['message' => 'Gagal mengimpor data e-RAB. Periksa log aplikasi.'], 500);
+
+            return;
+        }
+
+        $result['message'] = $dryRun
+            ? 'Pratinjau impor lolos validasi; belum ada data yang ditulis.'
+            : 'Data e-RAB Murni 2027 berhasil diimpor.';
+        $this->respond_json($result);
+    }
+
     public function salin_rab_perubahan($id = null): void
     {
-        isCan('u', 'rincian-rab');
+        $source = $this->keuangan_manual_model->get_rab_manual((int) $id);
+        $this->ensure_rab_access('u', $source['pos'] ?? null);
 
         $id = $this->keuangan_manual_model->salin_rab_perubahan((int) $id);
         if (false === $id) {
@@ -522,8 +616,6 @@ class Keuangan_manual extends Admin_Controller
 
     public function impor_rab_tahun_lalu(): void
     {
-        isCan('u', 'rincian-rab');
-
         $post = $this->input->post();
         $sourceId = is_scalar($post['id'] ?? null) ? trim((string) $post['id']) : '';
         $year = is_scalar($post['tahun'] ?? null) ? trim((string) $post['tahun']) : '';
@@ -535,6 +627,8 @@ class Keuangan_manual extends Admin_Controller
 
             return;
         }
+
+        $this->ensure_rab_access('u', $position);
 
         $id = $this->keuangan_manual_model->salin_rab_tahun_lalu((int) $sourceId, (int) $year, $sourceType);
         if (false === $id) {
@@ -548,7 +642,8 @@ class Keuangan_manual extends Admin_Controller
 
     public function hapus_rab_manual($id = null): void
     {
-        isCan('h', 'rincian-rab');
+        $record = $this->keuangan_manual_model->get_rab_manual((int) $id);
+        $this->ensure_rab_access('h', $record['pos'] ?? null);
 
         if (! $this->keuangan_manual_model->hapus_rab_manual((int) $id)) {
             $this->respond_json(['message' => 'Data tidak ditemukan, gagal dihapus, atau masih menjadi sumber anggaran perubahan'], 422);
@@ -559,6 +654,143 @@ class Keuangan_manual extends Admin_Controller
         $this->respond_json(['message' => 'Rincian anggaran berhasil dihapus']);
     }
 
+    public function spp_rab(): void
+    {
+        $this->ensure_rab_access('b', 'belanja');
+        $this->sub_modul_ini = 'anggaran-belanja';
+
+        if ($this->input->method(true) === 'POST') {
+            $post = $this->input->post();
+            $action = is_scalar($post['action'] ?? null) ? trim((string) $post['action']) : '';
+            $idValue = is_scalar($post['id'] ?? null) ? trim((string) $post['id']) : '';
+            $yearValue = is_scalar($post['tahun'] ?? null) ? trim((string) $post['tahun']) : '';
+            $stage = is_scalar($post['tahap'] ?? null) ? trim((string) $post['tahap']) : '';
+            $year = ctype_digit($yearValue) ? (int) $yearValue : 0;
+            if ($action === 'hapus') {
+                $this->ensure_rab_access('h', 'belanja');
+                $deleted = ctype_digit($idValue) && $this->keuangan_manual_model->hapus_rab_spp((int) $idValue);
+                if (! $deleted) {
+                    session_error('SPP tidak ditemukan atau hanya SPP berstatus draft yang dapat dihapus.');
+                } else {
+                    session_success('SPP berhasil dihapus.');
+                }
+            } elseif ($action === 'simpan') {
+                $this->ensure_rab_access('u', 'belanja');
+                $itemIds = is_array($post['rab_item_ids'] ?? null) ? $post['rab_item_ids'] : [];
+                $amounts = is_array($post['jumlah_bruto'] ?? null) ? $post['jumlah_bruto'] : [];
+                $items = [];
+                foreach ($itemIds as $itemId) {
+                    $itemId = is_scalar($itemId) ? trim((string) $itemId) : '';
+                    $items[] = [
+                        'rab_item_id' => $itemId,
+                        'jumlah_bruto' => is_scalar($amounts[$itemId] ?? null) ? trim((string) $amounts[$itemId]) : '',
+                    ];
+                }
+                $data = [
+                    'tahun' => $year,
+                    'tahap' => $stage,
+                    'nomor_spp' => $this->security->xss_clean(is_scalar($post['nomor_spp'] ?? null) ? trim((string) $post['nomor_spp']) : ''),
+                    'tanggal_spp' => is_scalar($post['tanggal_spp'] ?? null) ? trim((string) $post['tanggal_spp']) : '',
+                    'jenis_spp' => is_scalar($post['jenis_spp'] ?? null) ? trim((string) $post['jenis_spp']) : '',
+                    'penerima' => $this->security->xss_clean(is_scalar($post['penerima'] ?? null) ? trim((string) $post['penerima']) : ''),
+                    'alamat' => $this->security->xss_clean(is_scalar($post['alamat'] ?? null) ? trim((string) $post['alamat']) : ''),
+                    'npwp' => $this->security->xss_clean(is_scalar($post['npwp'] ?? null) ? trim((string) $post['npwp']) : ''),
+                    'keperluan' => $this->security->xss_clean(is_scalar($post['keperluan'] ?? null) ? trim((string) $post['keperluan']) : ''),
+                    'status' => is_scalar($post['status'] ?? null) ? trim((string) $post['status']) : 'draft',
+                    'nomor_kuitansi' => $this->security->xss_clean(is_scalar($post['nomor_kuitansi'] ?? null) ? trim((string) $post['nomor_kuitansi']) : ''),
+                    'tanggal_bayar' => is_scalar($post['tanggal_bayar'] ?? null) ? trim((string) $post['tanggal_bayar']) : '',
+                    'jumlah_dibayar' => is_scalar($post['jumlah_dibayar'] ?? null) ? trim((string) $post['jumlah_dibayar']) : '0',
+                ];
+                try {
+                    $savedId = ctype_digit($idValue)
+                        ? $this->keuangan_manual_model->simpan_rab_spp($data, $items, (int) $idValue)
+                        : ($idValue === '' ? $this->keuangan_manual_model->simpan_rab_spp($data, $items) : false);
+                    if ($savedId === false) {
+                        session_error('SPP tidak tersimpan. Periksa data dan log aplikasi.');
+                    } else {
+                        session_success('SPP berhasil disimpan.');
+                    }
+                } catch (InvalidArgumentException $error) {
+                    session_error($error->getMessage());
+                }
+            } else {
+                session_error('Aksi SPP tidak valid.');
+            }
+
+            $redirectStage = in_array($stage, ['murni', 'perubahan'], true) ? $stage : 'murni';
+            $redirectYear = $year >= 2000 && $year <= 2200 ? $year : (int) date('Y') + 1;
+            redirect('keuangan_manual/spp_rab?' . http_build_query([
+                'tahun_anggaran' => $redirectYear,
+                'tahap' => $redirectStage,
+            ]));
+
+            return;
+        }
+
+        $yearFilter = $this->finance_rab_year_filter_data();
+        $year = (int) $yearFilter['finance_year'];
+        $stage = $this->input->get('tahap', true);
+        $stage = is_scalar($stage) && in_array((string) $stage, ['murni', 'perubahan'], true)
+            ? (string) $stage
+            : 'murni';
+        $editValue = $this->input->get('edit', true);
+        $editId = is_scalar($editValue) && ctype_digit((string) $editValue) ? (int) $editValue : 0;
+        $spp = $editId > 0 ? $this->keuangan_manual_model->get_rab_spp($editId) : null;
+        if ($editId > 0 && $spp === null) {
+            show_404();
+
+            return;
+        }
+        if ($spp !== null) {
+            $year = (int) $spp['tahun'];
+            $stage = (string) $spp['tahap'];
+        }
+
+        $data = [
+            'year' => $year,
+            'stage' => $stage,
+            'spps' => $this->keuangan_manual_model->list_rab_spp($year, $stage),
+            'sources' => $this->keuangan_manual_model->list_rab_spp_sources($year, $stage, $editId),
+            'spp' => $spp,
+            'show_form' => $spp !== null || $this->input->get('baru', true) === '1',
+            'can_edit' => can('u', 'anggaran-belanja') || can('u', 'rincian-rab'),
+            'can_delete' => can('h', 'anggaran-belanja') || can('h', 'rincian-rab'),
+        ];
+        $this->add_finance_year_filter($data);
+        $data['finance_filter_year'] = (string) $year;
+        $data['csrf_name'] = $this->security->get_csrf_token_name();
+        $data['csrf_value'] = $this->security->get_csrf_hash();
+        $this->render('keuangan/spp_rab_manual', $data);
+    }
+
+    public function cetak_spp_rab($id = null): void
+    {
+        $this->ensure_rab_access('b', 'belanja');
+        $spp = $this->keuangan_manual_model->get_rab_spp((int) $id);
+        if ($spp === null || $spp['status'] === 'batal') {
+            show_404();
+
+            return;
+        }
+
+        $this->sub_modul_ini = 'anggaran-belanja';
+        $this->render('keuangan/cetak_spp_rab', ['spp' => $spp]);
+    }
+
+    public function cetak_kuitansi_rab($id = null): void
+    {
+        $this->ensure_rab_access('b', 'belanja');
+        $spp = $this->keuangan_manual_model->get_rab_spp((int) $id);
+        if ($spp === null || $spp['status'] !== 'dibayar' || empty($spp['kuitansi_id'])) {
+            show_404();
+
+            return;
+        }
+
+        $this->sub_modul_ini = 'anggaran-belanja';
+        $this->render('keuangan/cetak_kuitansi_rab', ['spp' => $spp]);
+    }
+
     public function parameter_rab(): void
     {
         $requestedType = $this->input->method(true) === 'POST'
@@ -566,6 +798,11 @@ class Keuangan_manual extends Admin_Controller
             : $this->input->get('jenis', true);
         if (in_array($requestedType, ['rekening', 'output'], true)) {
             $this->parameter_katalog_rab($requestedType);
+
+            return;
+        }
+        if ($requestedType === 'pajak') {
+            $this->parameter_pajak_rab();
 
             return;
         }
@@ -670,6 +907,60 @@ class Keuangan_manual extends Admin_Controller
         $data['can_delete'] = can('h', 'param-bidang-kegiatan');
         $data['can_export'] = can('b', 'param-bidang-kegiatan');
         $this->render('keuangan/parameter_bidang_kegiatan', $data);
+    }
+
+    private function parameter_pajak_rab(): void
+    {
+        $slug = 'param-pajak';
+        isCan('b', $slug);
+        $this->sub_modul_ini = $slug;
+
+        if ($this->input->method(true) === 'POST') {
+            $post = $this->input->post();
+            $value = static fn (string $key): string => is_scalar($post[$key] ?? null)
+                ? trim((string) $post[$key])
+                : '';
+            $action = $value('action');
+            $idValue = $value('id');
+            if ($action === 'hapus') {
+                isCan('h', $slug);
+                $deleted = $idValue !== '' && ctype_digit($idValue)
+                    && $this->keuangan_manual_model->hapus_rab_pajak((int) $idValue);
+                if (! $deleted) {
+                    session_error('Pajak tidak dapat dihapus karena tidak ditemukan atau sudah digunakan pada rincian belanja.');
+                } else {
+                    session_success();
+                }
+            } elseif ($action === 'simpan') {
+                isCan('u', $slug);
+                $data = [
+                    'kode' => $this->security->xss_clean($value('kode')),
+                    'nama' => $this->security->xss_clean($value('nama')),
+                    'persentase' => $value('persentase'),
+                    'aktif' => $value('aktif') === '1' ? 1 : 0,
+                ];
+                $id = $idValue !== '' && ctype_digit($idValue)
+                    ? $this->keuangan_manual_model->simpan_rab_pajak($data, (int) $idValue)
+                    : ($idValue === '' ? $this->keuangan_manual_model->simpan_rab_pajak($data) : false);
+                if ($id === false) {
+                    session_error('Pajak tidak tersimpan. Periksa kode, nama, tarif (0–100%), kode unik, dan status aktif jika pajak sudah digunakan.');
+                } else {
+                    session_success();
+                }
+            } else {
+                session_error('Aksi parameter pajak tidak valid.');
+            }
+
+            redirect('keuangan_manual/parameter_rab?jenis=pajak');
+        }
+
+        $data = [
+            'taxes' => $this->keuangan_manual_model->list_rab_pajak(),
+            'can_edit' => can('u', $slug),
+            'can_delete' => can('h', $slug),
+        ];
+        $this->add_finance_year_filter($data);
+        $this->render('keuangan/parameter_pajak_rab', $data);
     }
 
     private function parameter_katalog_rab(string $jenis): void
@@ -1002,6 +1293,11 @@ class Keuangan_manual extends Admin_Controller
         } elseif (! isset($get['tahun'])) {
             $get['tahun'] = $yearFilter['finance_year'];
         }
+        if ($shortcut === 'belanja' && $reportShortcut === null) {
+            redirect('keuangan_manual/laporan_anggaran_belanja?tahun_anggaran=' . rawurlencode($yearFilter['finance_year']));
+
+            return;
+        }
         if ($reportShortcut !== null) {
             $get['laporan'] = $reportShortcut;
             $get['tahap'] = $shortcut === 'p' ? 'perubahan' : 'murni';
@@ -1010,6 +1306,102 @@ class Keuangan_manual extends Admin_Controller
         }
         $reportKey = is_scalar($get['laporan'] ?? null) ? (string) $get['laporan'] : 'pendapatan';
         $stage = is_scalar($get['tahap'] ?? null) ? (string) $get['tahap'] : '';
+        if ($reportKey === 'belanja_per_kegiatan') {
+            $references = $this->keuangan_manual_model->list_rab_referensi();
+            $fieldCode = is_scalar($get['bidang'] ?? null) ? trim((string) $get['bidang']) : '';
+            $subFieldCode = is_scalar($get['sub_bidang'] ?? null) ? trim((string) $get['sub_bidang']) : '';
+            $activityCode = is_scalar($get['kegiatan'] ?? null) ? trim((string) $get['kegiatan']) : '';
+            if (! in_array($stage, ['murni', 'perubahan'], true)) {
+                $stage = 'murni';
+            }
+            $get['tahap'] = $stage;
+
+            $selectedField = null;
+            foreach ($references['bidang'] as $field) {
+                if ((string) $field['kode'] === $fieldCode) {
+                    $selectedField = $field;
+                    break;
+                }
+            }
+            $selectedSubField = null;
+            foreach ($references['sub_bidang'] as $subField) {
+                if ((string) $subField['kode'] === $subFieldCode) {
+                    $selectedSubField = $subField;
+                    break;
+                }
+            }
+            $selectedActivity = null;
+            foreach ($references['kegiatan'] as $activity) {
+                if ((string) $activity['kode'] === $activityCode) {
+                    $selectedActivity = $activity;
+                    break;
+                }
+            }
+            $hasReportSelection = (string) ($get['cari'] ?? '') === '1'
+                && $selectedField !== null
+                && $selectedSubField !== null
+                && $selectedActivity !== null
+                && (string) $selectedSubField['parent_id'] === (string) $selectedField['id']
+                && (string) $selectedActivity['parent_id'] === (string) $selectedSubField['id'];
+            $reportGet = $get;
+            $reportGet['laporan'] = 'belanja';
+            $data = $hasReportSelection
+                ? $this->data_laporan_rab($reportGet)
+                : [
+                    'table_rows' => [],
+                    'source_match' => null,
+                    'filters' => [
+                        'tahun' => (string) ($get['tahun'] ?? ''),
+                        'tahap' => $stage,
+                        'bidang' => $fieldCode,
+                        'kegiatan' => $activityCode,
+                    ],
+                ];
+            $data['report_key'] = 'belanja_per_kegiatan';
+            $data['report_title'] = 'RAB Per Kegiatan';
+            $data['references'] = $references;
+            $data['filters']['sub_bidang'] = $subFieldCode;
+            $data['has_report_selection'] = $hasReportSelection;
+            $data['finance_filter_years'] = $yearFilter['finance_years'];
+            $data['finance_filter_year'] = $yearFilter['finance_year'];
+            $data['can_export'] = can('b', 'laporan-rab');
+            $data['export_url'] = site_url('keuangan_manual/ekspor_laporan_rab') . '?' . http_build_query([
+                'laporan' => 'belanja',
+                'tahun' => $data['filters']['tahun'],
+                'tahap' => $stage,
+                'bidang' => $fieldCode,
+                'kegiatan' => $activityCode,
+            ]);
+
+            $this->render('keuangan/laporan_rab_per_kegiatan', $data);
+
+            return;
+        }
+        if (in_array($reportKey, ['rkp', 'rkk'], true)) {
+            $year = is_scalar($get['tahun'] ?? null) ? (string) $get['tahun'] : '';
+            $hasSourceData = $year === '2027';
+            $sourceData = $hasSourceData ? $this->load_laporan_rab_program_sumber_data() : [];
+            $data = [
+                'report_key' => $reportKey,
+                'report_title' => strtoupper($reportKey),
+                'year' => $year,
+                'has_source_data' => $hasSourceData,
+                'source_stage' => $hasSourceData ? $sourceData['stage'] : '',
+                'group_header' => $hasSourceData ? $sourceData[$reportKey . '_group_header'] : [],
+                'columns' => $hasSourceData ? $sourceData[$reportKey . '_columns'] : [],
+                'report_rows' => $hasSourceData ? $sourceData[$reportKey . '_rows'] : [],
+                'can_export' => can('b', 'laporan-rab'),
+                'export_url' => site_url('keuangan_manual/ekspor_laporan_rab') . '?' . http_build_query([
+                    'laporan' => $reportKey,
+                    'tahun' => $year,
+                ]),
+                'finance_filter_years' => $yearFilter['finance_years'],
+                'finance_filter_year' => $yearFilter['finance_year'],
+            ];
+            $this->render('keuangan/laporan_rab_program', $data);
+
+            return;
+        }
         $reportMenu = [
             'pendapatan' => 'pendapatan',
             'belanja' => 'belanja',
@@ -1038,7 +1430,89 @@ class Keuangan_manual extends Admin_Controller
     {
         isCan('b', 'laporan-rab');
         $get = $this->input->get();
+        $requestedReport = is_scalar($get['laporan'] ?? null) ? (string) $get['laporan'] : '';
+        if (in_array($requestedReport, ['rkp', 'rkk'], true)) {
+            $year = is_scalar($get['tahun'] ?? null) ? (string) $get['tahun'] : '';
+            if ($year !== '2027') {
+                show_error('Ekspor RKP/RKK sumber tersedia untuk Tahun Anggaran 2027 Murni.', 404);
+
+                return;
+            }
+            $sourceData = $this->load_laporan_rab_program_sumber_data();
+            $columns = $sourceData[$requestedReport . '_columns'];
+            $rows = [];
+            foreach ($sourceData[$requestedReport . '_rows'] as $sourceRow) {
+                $exportRow = [];
+                foreach ($columns as $index => $column) {
+                    $header = trim((string) $column);
+                    $exportRow[$header === '' ? 'Kode' : $header] = (string) ($sourceRow[$index] ?? '');
+                }
+                $rows[] = $exportRow;
+            }
+
+            return (new \Rap2hpoutre\FastExcel\FastExcel($rows))
+                ->download('laporan-' . $requestedReport . '-2027-murni-' . date('Ymd') . '.xlsx');
+        }
         $data = $this->data_laporan_rab(is_array($get) ? $get : []);
+        if (in_array($data['report_key'], ['pendapatan', 'belanja', 'pembiayaan'], true)) {
+            $rows = [];
+            foreach ($data['table_rows'] as $row) {
+                if (in_array($row['kind'], ['spacer', 'header'], true)) {
+                    continue;
+                }
+                $rows[] = [
+                    'KODE' => $row['kode'],
+                    'URAIAN' => $row['uraian'],
+                    'SUMBERDANA' => $row['sumber_dana'],
+                    'VOLUME' => $row['volume'] === null
+                        ? ''
+                        : number_format((float) $row['volume'], 2, '.', $data['report_key'] === 'belanja' ? '' : ',')
+                            . (trim((string) $row['satuan']) !== '' ? ' ' . $row['satuan'] : ''),
+                    'HARGA SATUAN' => $row['harga_satuan'] === null ? '' : (float) $row['harga_satuan'],
+                    'JUMLAH' => $row['jumlah'] === null ? '' : (float) $row['jumlah'],
+                ];
+            }
+            if ($rows === []) {
+                $rows[] = ['KODE' => '', 'URAIAN' => 'Belum ada data untuk filter yang dipilih.'];
+            }
+
+            return (new \Rap2hpoutre\FastExcel\FastExcel($rows))
+                ->download('laporan-rab-' . $data['report_key'] . '-' . date('Ymd') . '.xlsx');
+        }
+
+        if (in_array($data['report_key'], ['apbdes', 'penjabaran', 'sumber_dana', 'konsolidasi'], true)) {
+            $rows = [];
+            foreach ($data['detail_table_rows'] as $row) {
+                $exportRow = [
+                    'Kode' => $row['kode'],
+                    'Rekening' => $row['rekening'],
+                    'Uraian' => $row['uraian'],
+                    'Kegiatan' => $row['kegiatan'],
+                ];
+                if (in_array($data['report_key'], ['apbdes', 'sumber_dana'], true)) {
+                    $exportRow['Anggaran (Rp)'] = (float) $row['jumlah_menjadi'];
+                    $exportRow['Sumberdana'] = $row['sumber_dana'];
+                } elseif ($data['report_key'] === 'penjabaran') {
+                    $exportRow['Volume'] = (float) $row['volume'];
+                    $exportRow['Satuan'] = $row['satuan'];
+                    $exportRow['Anggaran (Rp)'] = (float) $row['jumlah_menjadi'];
+                    $exportRow['Sumberdana'] = $row['sumber_dana'];
+                } else {
+                    $exportRow['Semula (Rp)'] = (float) $row['jumlah_semula'];
+                    $exportRow['Menjadi (Rp)'] = (float) $row['jumlah_menjadi'];
+                    $exportRow['Bertambah / (Berkurang)'] = (float) $row['selisih'];
+                    $exportRow['Sumberdana'] = $row['sumber_dana'];
+                }
+                $rows[] = $exportRow;
+            }
+            if ($rows === []) {
+                $rows[] = ['Informasi' => 'Tidak ada data untuk filter yang dipilih.'];
+            }
+
+            return (new \Rap2hpoutre\FastExcel\FastExcel($rows))
+                ->download('laporan-rab-' . $data['report_key'] . '-' . date('Ymd') . '.xlsx');
+        }
+
         $rows = [];
         foreach ($data['rows'] as $row) {
             $rows[] = [
@@ -1155,13 +1629,13 @@ class Keuangan_manual extends Admin_Controller
     private function data_laporan_rab(array $get): array
     {
         $reports = [
-            'pendapatan' => ['Laporan Pendapatan', 'pendapatan'],
-            'belanja' => ['Laporan Belanja', 'belanja'],
-            'pembiayaan' => ['Laporan Pembiayaan', 'pembiayaan'],
+            'pendapatan' => ['Laporan Anggaran Pendapatan', 'pendapatan'],
+            'belanja' => ['Laporan Anggaran Belanja', 'belanja'],
+            'pembiayaan' => ['Laporan Anggaran Pembiayaan', 'pembiayaan'],
             'apbdes' => ['Laporan APBDes', null],
-            'penjabaran' => ['Laporan Penjabaran APBDes & Perubahannya', null],
+            'penjabaran' => ['Laporan Penjabaran APBDes', null],
             'sumber_dana' => ['Laporan APBDes per Sumber Dana', null],
-            'konsolidasi' => ['Laporan Perubahan APBDes (Konsolidasian)', null],
+            'konsolidasi' => ['Laporan Perubahan APBDes', null],
         ];
         $reportKey = is_scalar($get['laporan'] ?? null) ? (string) $get['laporan'] : 'pendapatan';
         if (! isset($reports[$reportKey])) {
@@ -1262,11 +1736,36 @@ class Keuangan_manual extends Admin_Controller
         $summary['pembiayaan_netto_menjadi'] = $summary['penerimaan_pembiayaan_menjadi'] - $summary['pengeluaran_pembiayaan_menjadi'];
         $summary['silpa_semula'] = $summary['surplus_semula'] + $summary['pembiayaan_netto_semula'];
         $summary['silpa_menjadi'] = $summary['surplus_menjadi'] + $summary['pembiayaan_netto_menjadi'];
+        $sourceData = $reportKey === 'belanja'
+            && in_array($year, ['', '2027'], true)
+            && in_array($stage, ['', 'murni'], true)
+                ? $this->load_laporan_belanja_sumber_data()
+                : null;
+        $tableResult = in_array($reportKey, ['pendapatan', 'belanja', 'pembiayaan'], true)
+            ? $this->build_laporan_rab_utama(
+                $rows,
+                $reportKey,
+                $references,
+                $this->keuangan_manual_model->list_laporan_rekening_hierarki(),
+                $sourceData,
+                [
+                    'bidang_kode' => $bidangCode,
+                    'kegiatan' => $filter['kegiatan'] ?? '',
+                ]
+            )
+            : ['rows' => [], 'source_match' => null];
+        $tableRows = $tableResult['rows'];
+        $detailTableRows = in_array($reportKey, ['apbdes', 'penjabaran', 'sumber_dana', 'konsolidasi'], true)
+            ? $this->build_laporan_rab_detail($rows, $reportKey, $references)
+            : [];
 
         return [
             'report_key' => $reportKey,
             'report_title' => $reports[$reportKey][0],
             'rows' => $rows,
+            'table_rows' => $tableRows,
+            'source_match' => $tableResult['source_match'],
+            'detail_table_rows' => $detailTableRows,
             'summary' => $summary,
             'account_comparison' => $year !== '' ? $this->laporan_realisasi_per_rekening($year) : [],
             'filters' => [
@@ -1276,6 +1775,704 @@ class Keuangan_manual extends Admin_Controller
                 'kegiatan' => $activityCode,
                 'sumber_dana' => $fund,
             ],
+        ];
+    }
+
+    private function load_laporan_rab_program_sumber_data(): array
+    {
+        $path = APPPATH . 'data/keuangan_manual_rab_program_2027_murni.json';
+        if (! is_file($path)) {
+            throw new \RuntimeException('Data sumber RKP/RKK 2027 Murni tidak ditemukan: ' . $path);
+        }
+
+        $json = file_get_contents($path);
+        if ($json === false) {
+            throw new \RuntimeException('Data sumber RKP/RKK 2027 Murni tidak dapat dibaca: ' . $path);
+        }
+
+        $data = json_decode($json, true);
+        if (! is_array($data)
+            || json_last_error() !== JSON_ERROR_NONE
+            || ($data['year'] ?? null) !== 2027
+            || ($data['stage'] ?? null) !== 'murni') {
+            throw new \UnexpectedValueException('Data sumber RKP/RKK 2027 Murni tidak valid.');
+        }
+        foreach (['rkp', 'rkk'] as $report) {
+            $columns = $data[$report . '_columns'] ?? null;
+            $groupHeader = $data[$report . '_group_header'] ?? null;
+            $rows = $data[$report . '_rows'] ?? null;
+            if (! is_array($columns) || ! is_array($groupHeader) || count($columns) !== count($groupHeader) || ! is_array($rows)) {
+                throw new \UnexpectedValueException('Struktur kolom sumber ' . strtoupper($report) . ' tidak valid.');
+            }
+            foreach ($rows as $row) {
+                if (! is_array($row) || count($row) !== count($columns)) {
+                    throw new \UnexpectedValueException('Struktur baris sumber ' . strtoupper($report) . ' tidak valid.');
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    private function load_laporan_belanja_sumber_data(): array
+    {
+        $path = APPPATH . 'data/keuangan_manual_rab_belanja_2027_murni.json';
+        if (! is_file($path)) {
+            throw new \RuntimeException('Data sumber struktur Belanja 2027 Murni tidak ditemukan: ' . $path);
+        }
+
+        $json = file_get_contents($path);
+        if ($json === false) {
+            throw new \RuntimeException('Data sumber struktur Belanja 2027 Murni tidak dapat dibaca: ' . $path);
+        }
+
+        $data = json_decode($json, true);
+        if (! is_array($data) || json_last_error() !== JSON_ERROR_NONE || ($data['year'] ?? null) !== 2027) {
+            throw new \UnexpectedValueException('Data sumber struktur Belanja 2027 Murni tidak valid.');
+        }
+
+        $accountPath = APPPATH . 'data/keuangan_manual_rab_belanja_2027_murni_rekening.json';
+        $accountJson = file_get_contents($accountPath);
+        if ($accountJson === false) {
+            throw new \RuntimeException('Nama rekening sumber Belanja 2027 Murni tidak dapat dibaca: ' . $accountPath);
+        }
+        $accountNames = json_decode($accountJson, true);
+        if (! is_array($accountNames) || json_last_error() !== JSON_ERROR_NONE) {
+            throw new \UnexpectedValueException('Nama rekening sumber Belanja 2027 Murni tidak valid.');
+        }
+        $data['account_codes_without_trailing_dot'] = $accountNames['_display_without_trailing_dot'] ?? [];
+        unset($accountNames['_display_without_trailing_dot']);
+        $data['account_names'] = $accountNames;
+
+        return $data;
+    }
+
+    private function build_laporan_rab_detail(array $rows, string $reportKey, array $references): array
+    {
+        $activityCodes = [];
+        foreach ($references['kegiatan'] as $activity) {
+            $activityCodes[trim((string) $activity['nama'])] = rtrim((string) $activity['kode'], '.');
+        }
+
+        $groups = [];
+        foreach ($rows as $row) {
+            if (empty($row['item_id']) || ($reportKey !== 'konsolidasi' && (int) ($row['dihapus'] ?? 0) === 1)) {
+                continue;
+            }
+
+            $activity = trim((string) ($row['kegiatan_sumber'] ?: $row['kegiatan']));
+            $activityCode = $activityCodes[trim((string) $row['kegiatan'])] ?? '';
+            $accountCode = rtrim((string) $row['rekening_kode'], '.');
+            $fund = trim((string) ($row['sumber_dana'] ?? ''));
+            $description = trim((string) ($row['keterangan'] ?? ''));
+
+            if ($reportKey === 'penjabaran') {
+                $groups[] = [
+                    'kode' => $activityCode,
+                    'rekening' => $accountCode,
+                    'uraian' => $description !== '' ? $description : (string) ($row['rekening_nama'] ?? ''),
+                    'kegiatan' => $activity,
+                    'volume' => (float) ($row['volume'] ?? 0),
+                    'satuan' => (string) ($row['satuan'] ?? ''),
+                    'jumlah_semula' => (float) $row['jumlah_semula'],
+                    'jumlah_menjadi' => (float) $row['jumlah_menjadi'],
+                    'selisih' => (float) $row['jumlah_menjadi'] - (float) $row['jumlah_semula'],
+                    'sumber_dana' => $fund,
+                ];
+                continue;
+            }
+
+            $keyParts = [$row['jenis'], $row['tahun'], $activityCode, $accountCode];
+            if ($reportKey === 'sumber_dana') {
+                $keyParts[] = $fund;
+            }
+            if ($reportKey !== 'konsolidasi') {
+                $keyParts[] = $row['tahap'];
+            }
+            $key = serialize($keyParts);
+            $groups[$key] ??= [
+                'kode' => $activityCode,
+                'rekening' => $accountCode,
+                'uraian' => (string) ($row['rekening_nama'] ?? ''),
+                'kegiatan' => $activity,
+                'volume' => 0.0,
+                'satuan' => '',
+                'jumlah_semula' => 0.0,
+                'jumlah_menjadi' => 0.0,
+                'selisih' => 0.0,
+                'sumber_dana' => [],
+                'murni' => 0.0,
+                'perubahan_semula' => 0.0,
+                'perubahan_menjadi' => 0.0,
+                'ada_perubahan' => false,
+            ];
+            if ($fund !== '') {
+                $groups[$key]['sumber_dana'][$fund] = $fund;
+            }
+            if ($reportKey === 'konsolidasi') {
+                if ($row['tahap'] === 'perubahan') {
+                    $groups[$key]['perubahan_semula'] += (float) $row['jumlah_semula'];
+                    $groups[$key]['perubahan_menjadi'] += (float) $row['jumlah_menjadi'];
+                    $groups[$key]['ada_perubahan'] = true;
+                } else {
+                    $groups[$key]['murni'] += (float) $row['jumlah_menjadi'];
+                }
+            } else {
+                $groups[$key]['jumlah_semula'] += (float) $row['jumlah_semula'];
+                $groups[$key]['jumlah_menjadi'] += (float) $row['jumlah_menjadi'];
+            }
+        }
+
+        foreach ($groups as &$group) {
+            if ($reportKey === 'konsolidasi') {
+                $group['jumlah_semula'] = $group['ada_perubahan'] ? $group['perubahan_semula'] : $group['murni'];
+                $group['jumlah_menjadi'] = $group['ada_perubahan'] ? $group['perubahan_menjadi'] : $group['murni'];
+                $group['selisih'] = $group['jumlah_menjadi'] - $group['jumlah_semula'];
+            }
+            if (is_array($group['sumber_dana'])) {
+                sort($group['sumber_dana'], SORT_NATURAL | SORT_FLAG_CASE);
+                $group['sumber_dana'] = implode(', ', $group['sumber_dana']);
+            }
+            unset($group['murni'], $group['perubahan_semula'], $group['perubahan_menjadi'], $group['ada_perubahan']);
+        }
+        unset($group);
+
+        usort($groups, static fn (array $left, array $right): int => strnatcasecmp(
+            $left['kode'] . $left['rekening'] . $left['uraian'],
+            $right['kode'] . $right['rekening'] . $right['uraian']
+        ));
+
+        return array_values($groups);
+    }
+
+    private function laporan_normalisasi_teks(string $value): string
+    {
+        $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if (preg_match('/(?:Ã.|Â.)/u', $value) === 1 && function_exists('iconv')) {
+            $decoded = iconv('UTF-8', 'Windows-1252//IGNORE', $value);
+            if ($decoded !== false && preg_match('//u', $decoded) === 1) {
+                $value = $decoded;
+            }
+        }
+        $value = strtr($value, [
+            'Â¹' => '¹',
+            'Â²' => '²',
+            'Â³' => '³',
+            'Ã˜' => 'Ø',
+        ]);
+
+        return preg_replace('/\s+/u', ' ', trim($value)) ?? trim($value);
+    }
+
+    private function laporan_normalisasi_kode(string $code): string
+    {
+        $parts = explode('.', trim($code, '.'));
+
+        return implode('.', array_map(
+            static fn (string $part): string => (string) ((int) $part),
+            $parts
+        ));
+    }
+
+    private function laporan_belanja_item_signature(array $item): string
+    {
+        return serialize([
+            mb_strtolower($this->laporan_normalisasi_teks((string) ($item['kegiatan_sumber'] ?? '')), 'UTF-8'),
+            mb_strtolower($this->laporan_normalisasi_teks((string) ($item['output'] ?? '')), 'UTF-8'),
+            mb_strtolower($this->laporan_normalisasi_teks((string) ($item['waktu_pelaksanaan'] ?? '')), 'UTF-8'),
+            $this->laporan_normalisasi_kode((string) ($item['rekening_kode'] ?? '')),
+            mb_strtolower($this->laporan_normalisasi_teks((string) ($item['keterangan'] ?? '')), 'UTF-8'),
+            mb_strtolower($this->laporan_normalisasi_teks((string) ($item['sumber_dana'] ?? '')), 'UTF-8'),
+            number_format((float) ($item['volume'] ?? 0), 2, '.', ''),
+            mb_strtolower($this->laporan_normalisasi_teks((string) ($item['satuan'] ?? '')), 'UTF-8'),
+            number_format((float) ($item['harga_satuan'] ?? 0), 2, '.', ''),
+            number_format((float) ($item['jumlah_menjadi'] ?? 0), 2, '.', ''),
+        ]);
+    }
+
+    private function build_laporan_rab_utama(
+        array $rows,
+        string $reportKey,
+        array $references,
+        array $hierarchy,
+        ?array $sourceData = null,
+        array $filters = []
+    ): array
+    {
+        $accountNames = [];
+        foreach ($references['rekening'] as $account) {
+            $accountNames[$this->laporan_normalisasi_kode((string) $account['kode'])] = (string) $account['nama'];
+        }
+        $rootNames = [];
+        foreach ($hierarchy['akun'] as $account) {
+            $rootNames[rtrim((string) $account['Akun'], '.')] = (string) $account['Nama_Akun'];
+        }
+        $groupNames = [];
+        foreach ($hierarchy['kelompok'] as $group) {
+            $groupNames[rtrim((string) $group['Kelompok'], '.')] = (string) $group['Nama_Kelompok'];
+        }
+        $typeNames = [];
+        foreach ($hierarchy['jenis'] as $type) {
+            $typeNames[$this->laporan_normalisasi_kode((string) $type['Jenis'])] = (string) $type['Nama_Jenis'];
+        }
+        $sourceAccountNames = [];
+        foreach ($sourceData['account_names'] ?? [] as $code => $name) {
+            if (is_string($name)) {
+                $sourceAccountNames[$this->laporan_normalisasi_kode((string) $code)] = $this->laporan_normalisasi_teks($name);
+            }
+        }
+        $sourceAccountCodesWithoutTrailingDot = [];
+        foreach ($sourceData['account_codes_without_trailing_dot'] ?? [] as $code) {
+            $sourceAccountCodesWithoutTrailingDot[] = $this->laporan_normalisasi_kode((string) $code);
+        }
+        $activityCodes = [];
+        foreach ($references['kegiatan'] as $activity) {
+            $activityCodes[trim((string) $activity['nama'])] = rtrim((string) $activity['kode'], '.');
+        }
+        $fieldNames = [];
+        foreach ($references['bidang'] as $field) {
+            $fieldNames[rtrim((string) $field['kode'], '.')] = (string) $field['nama'];
+        }
+        $subFieldNames = [];
+        foreach ($references['sub_bidang'] as $subField) {
+            $subFieldNames[rtrim((string) $subField['kode'], '.')] = (string) $subField['nama'];
+        }
+
+        $sourceActivities = $sourceData['activities'] ?? [];
+        $sourceActivityIndexes = [];
+        $sourceItemQueues = [];
+        $sourceItemQueueOffsets = [];
+        $sourceItemCount = 0;
+        foreach ($sourceActivities as $sourceActivityIndex => $sourceActivity) {
+            $activitySignature = serialize([
+                mb_strtolower($this->laporan_normalisasi_teks((string) ($sourceActivity[5] ?? '')), 'UTF-8'),
+                mb_strtolower($this->laporan_normalisasi_teks((string) ($sourceActivity[7] ?? '')), 'UTF-8'),
+                mb_strtolower($this->laporan_normalisasi_teks((string) ($sourceActivity[6] ?? '')), 'UTF-8'),
+            ]);
+            $sourceActivityIndexes[$activitySignature] = $sourceActivityIndex;
+
+            foreach ($sourceActivity[8] ?? [] as $sourcePackageIndex => $sourcePackage) {
+                foreach ($sourcePackage[3] ?? [] as $sourceItem) {
+                    $sourceRow = [
+                        'kegiatan_sumber' => $sourceActivity[5] ?? '',
+                        'output' => $sourceActivity[7] ?? '',
+                        'waktu_pelaksanaan' => $sourceActivity[6] ?? '',
+                        'rekening_kode' => $sourceItem[0] ?? '',
+                        'keterangan' => $sourceItem[1] ?? '',
+                        'sumber_dana' => $sourceItem[2] ?? '',
+                        'volume' => $sourceItem[3] ?? 0,
+                        'satuan' => $sourceItem[4] ?? '',
+                        'harga_satuan' => $sourceItem[5] ?? 0,
+                        'jumlah_menjadi' => $sourceItem[6] ?? 0,
+                    ];
+                    $signature = $this->laporan_belanja_item_signature($sourceRow);
+                    $sourceItemQueues[$signature][] = [
+                        'activity_index' => $sourceActivityIndex,
+                        'package_index' => $sourcePackageIndex,
+                        'item' => $sourceItem,
+                    ];
+                    ++$sourceItemCount;
+                }
+            }
+        }
+        $sourceMatch = $sourceData === null
+            ? null
+            : [
+                'expected' => empty($filters['bidang_kode']) && empty($filters['kegiatan']) ? $sourceItemCount : null,
+                'matched' => 0,
+                'unmatched' => 0,
+                'activity_unmatched' => 0,
+                'item_unmatched' => 0,
+            ];
+
+        $sections = [];
+        foreach ($rows as $row) {
+            if (empty($row['item_id']) || (int) ($row['dihapus'] ?? 0) === 1) {
+                continue;
+            }
+            $sectionKey = serialize([(int) $row['tahun'], (string) $row['tahap']]);
+            $sections[$sectionKey] ??= [
+                'tahun' => (int) $row['tahun'],
+                'tahap' => (string) $row['tahap'],
+            ];
+            $accountCode = rtrim((string) $row['rekening_kode'], '.');
+            $accountName = (string) ($row['rekening_nama'] ?? $accountNames[$accountCode] ?? '');
+            if ($reportKey === 'belanja') {
+                $sourceActivityIndex = null;
+                $sourcePackageIndex = null;
+                $isSourceActivity = $sourceData !== null
+                    && (int) $row['tahun'] === (int) $sourceData['year']
+                    && (string) $row['tahap'] === (string) $sourceData['stage'];
+                if ($isSourceActivity) {
+                    $sourceActivitySignature = serialize([
+                        mb_strtolower($this->laporan_normalisasi_teks((string) ($row['kegiatan_sumber'] ?? '')), 'UTF-8'),
+                        mb_strtolower($this->laporan_normalisasi_teks((string) ($row['output'] ?? '')), 'UTF-8'),
+                        mb_strtolower($this->laporan_normalisasi_teks((string) ($row['waktu_pelaksanaan'] ?? '')), 'UTF-8'),
+                    ]);
+                    $sourceActivityIndex = $sourceActivityIndexes[$sourceActivitySignature] ?? null;
+                    $itemSignature = $this->laporan_belanja_item_signature($row);
+                    $queueOffset = $sourceItemQueueOffsets[$itemSignature] ?? 0;
+                    $sourceLocation = $sourceItemQueues[$itemSignature][$queueOffset] ?? null;
+                    if ($sourceActivityIndex !== null && $sourceLocation !== null && $sourceLocation['activity_index'] === $sourceActivityIndex) {
+                        $sourcePackageIndex = $sourceLocation['package_index'];
+                        $sourceItem = $sourceLocation['item'];
+                        $sourceItemQueueOffsets[$itemSignature] = $queueOffset + 1;
+                        ++$sourceMatch['matched'];
+                        $row['rekening_kode'] = (string) ($sourceItem[0] ?? $row['rekening_kode']);
+                        $row['keterangan'] = $this->laporan_normalisasi_teks((string) ($sourceItem[1] ?? $row['keterangan']));
+                        $row['sumber_dana'] = $this->laporan_normalisasi_teks((string) ($sourceItem[2] ?? $row['sumber_dana']));
+                        $row['volume'] = (float) ($sourceItem[3] ?? $row['volume']);
+                        $row['satuan'] = $this->laporan_normalisasi_teks((string) ($sourceItem[4] ?? $row['satuan']));
+                        $row['harga_satuan'] = (float) ($sourceItem[5] ?? $row['harga_satuan']);
+                        $row['jumlah_menjadi'] = (float) ($sourceItem[6] ?? $row['jumlah_menjadi']);
+                        $accountCode = rtrim((string) $row['rekening_kode'], '.');
+                        $accountName = $accountNames[$this->laporan_normalisasi_kode($accountCode)] ?? $accountName;
+                    } else {
+                        ++$sourceMatch['unmatched'];
+                        if ($sourceActivityIndex === null) {
+                            ++$sourceMatch['activity_unmatched'];
+                        } else {
+                            ++$sourceMatch['item_unmatched'];
+                        }
+                    }
+                }
+                $activityName = trim((string) $row['kegiatan']);
+                $activityCode = $activityCodes[$activityName] ?? '';
+                $activityKey = serialize([
+                    $row['bidang_kode'],
+                    $row['sub_bidang'],
+                    $activityName,
+                    $row['kegiatan_sumber'],
+                    $row['output'],
+                    $row['waktu_pelaksanaan'],
+                ]);
+                $sections[$sectionKey]['activities'][$activityKey] ??= [
+                    'bidang_kode' => (string) ($row['bidang_kode'] ?? ''),
+                    'sub_bidang' => (string) ($row['sub_bidang'] ?? ''),
+                    'kegiatan' => $activityName,
+                    'kegiatan_sumber' => (string) ($row['kegiatan_sumber'] ?? ''),
+                    'kegiatan_kode' => $activityCode,
+                    'output' => (string) ($row['output'] ?? ''),
+                    'waktu_pelaksanaan' => (string) ($row['waktu_pelaksanaan'] ?? ''),
+                    'rekening' => [],
+                    'package_accounts' => [],
+                    'source_activity_index' => $sourceActivityIndex,
+                ];
+                $sections[$sectionKey]['activities'][$activityKey]['rekening'][$accountCode] ??= [
+                    'nama' => $accountName,
+                    'items' => [],
+                ];
+                $sections[$sectionKey]['activities'][$activityKey]['rekening'][$accountCode]['items'][] = $row;
+                if ($sourceActivityIndex !== null) {
+                    $packageKey = $sourcePackageIndex === null ? 'unmatched' : (string) $sourcePackageIndex;
+                    $sections[$sectionKey]['activities'][$activityKey]['package_accounts'][$packageKey][$accountCode] ??= [
+                        'nama' => $accountName,
+                        'items' => [],
+                    ];
+                    $sections[$sectionKey]['activities'][$activityKey]['package_accounts'][$packageKey][$accountCode]['items'][] = $row;
+                    $sections[$sectionKey]['activities'][$activityKey]['source_activity_index'] = $sourceActivityIndex;
+                }
+            } else {
+                $sections[$sectionKey]['rekening'][$accountCode] ??= [
+                    'nama' => $accountName,
+                    'items' => [],
+                ];
+                $sections[$sectionKey]['rekening'][$accountCode]['items'][] = $row;
+            }
+        }
+
+        ksort($sections, SORT_NATURAL);
+        $result = [];
+        $append = static function (
+            string $kind,
+            string $code = '',
+            string $description = '',
+            string $fund = '',
+            $volume = null,
+            $price = null,
+            $amount = null,
+            int $level = 0,
+            string $unit = ''
+        ) use (&$result): void {
+            $result[] = [
+                'kind' => $kind,
+                'kode' => $code,
+                'uraian' => $description,
+                'sumber_dana' => $fund,
+                'volume' => $volume,
+                'satuan' => $unit,
+                'harga_satuan' => $price,
+                'jumlah' => $amount,
+                'level' => $level,
+            ];
+        };
+        $moneyRows = static function (array $account): array {
+            return $account['items'] ?? [];
+        };
+        $sumItems = static function (array $items): float {
+            return array_sum(array_map(static fn (array $item): float => (float) $item['jumlah_menjadi'], $items));
+        };
+        $accountAmount = static function (array $account) use ($sumItems): float {
+            return $sumItems($account['items']);
+        };
+        $accountCodeParts = static function (string $code): array {
+            return explode('.', trim($code, '.'));
+        };
+        $normalizeAccountCode = fn (string $code): string => $this->laporan_normalisasi_kode($code);
+        $appendAccountRows = static function (array $accounts) use (
+            &$append,
+            $accountAmount,
+            $moneyRows,
+            $accountCodeParts,
+            $typeNames,
+            $sourceAccountNames,
+            $sourceAccountCodesWithoutTrailingDot,
+            $normalizeAccountCode
+        ): float {
+            uksort($accounts, 'strnatcasecmp');
+            $amountByGroup = [];
+            $total = 0.0;
+            foreach ($accounts as $code => $account) {
+                $amount = $accountAmount($account);
+                $total += $amount;
+                $parts = $accountCodeParts($code);
+                $groupCode = count($parts) >= 3
+                    ? implode('.', array_slice($parts, 0, 3)) . '.'
+                    : '';
+                if ($groupCode !== '') {
+                    $amountByGroup[$groupCode] = ($amountByGroup[$groupCode] ?? 0) + $amount;
+                }
+            }
+            foreach ($amountByGroup as $groupCode => $amount) {
+                $normalizedGroupCode = $normalizeAccountCode($groupCode);
+                $groupName = $sourceAccountNames[$normalizedGroupCode] ?? $typeNames[$normalizedGroupCode] ?? '';
+                $append('account', $groupCode, $groupName, '', null, null, $amount, 1);
+                foreach ($accounts as $code => $account) {
+                    $parts = $accountCodeParts($code);
+                    $itemGroupCode = count($parts) >= 3
+                        ? implode('.', array_slice($parts, 0, 3)) . '.'
+                        : '';
+                    if ($itemGroupCode !== $groupCode) {
+                        continue;
+                    }
+                    $normalizedAccountCode = $normalizeAccountCode($code);
+                    $accountName = $sourceAccountNames[$normalizedAccountCode] ?? $account['nama'];
+                    $displayAccountCode = in_array($normalizedAccountCode, $sourceAccountCodesWithoutTrailingDot, true)
+                        ? $code
+                        : $code . '.';
+                    $append('account', $displayAccountCode, $accountName, '', null, null, $accountAmount($account), 2);
+                    foreach ($moneyRows($account) as $index => $item) {
+                        $append(
+                            'item',
+                            '',
+                            ($index + 1) . '. ' . (string) $item['keterangan'],
+                            (string) ($item['sumber_dana'] ?? ''),
+                            $item['volume'],
+                            $item['harga_satuan'],
+                            (float) $item['jumlah_menjadi'],
+                            3,
+                            (string) ($item['satuan'] ?? '')
+                        );
+                    }
+                }
+            }
+
+            return $total;
+        };
+
+        foreach ($sections as $section) {
+            if (count($sections) > 1) {
+                $append(
+                    'section',
+                    '',
+                    'Tahun Anggaran ' . $section['tahun'] . ' / ' . ucfirst($section['tahap'])
+                );
+            }
+            if ($reportKey === 'belanja') {
+                $activities = $section['activities'] ?? [];
+                uasort($activities, static function (array $left, array $right): int {
+                    return strnatcasecmp($left['kegiatan_kode'] . $left['kegiatan'], $right['kegiatan_kode'] . $right['kegiatan']);
+                });
+                foreach ($activities as $activity) {
+                    $sourceActivity = $sourceActivities[$activity['source_activity_index']] ?? null;
+                    $fieldCode = $sourceActivity[0] ?? rtrim($activity['bidang_kode'], '.');
+                    $fieldName = $sourceActivity !== null
+                        ? $this->laporan_normalisasi_teks((string) $sourceActivity[1])
+                        : ($fieldNames[$fieldCode] ?? '');
+                    $subFieldCode = $sourceActivity[2] ?? '';
+                    $subFieldName = $sourceActivity !== null
+                        ? $this->laporan_normalisasi_teks((string) $sourceActivity[3])
+                        : '';
+                    if ($sourceActivity === null) {
+                        $activityParts = $accountCodeParts($activity['kegiatan_kode']);
+                        $subFieldCode = count($activityParts) >= 2
+                            ? $activityParts[0] . '.' . $activityParts[1]
+                            : '';
+                        $subFieldName = $subFieldNames[$subFieldCode] ?? $activity['sub_bidang'];
+                    }
+                    $activityCode = $sourceActivity[4] ?? $activity['kegiatan_kode'];
+                    $activityTitle = $sourceActivity !== null
+                        ? $this->laporan_normalisasi_teks((string) $sourceActivity[5])
+                        : (
+                        $activity['kegiatan_sumber'] !== ''
+                            ? $activity['kegiatan_sumber']
+                            : $activity['kegiatan']
+                        );
+                    $append('metadata', 'Bidang', trim($fieldCode . '. ' . strtoupper($fieldName)));
+                    $append('metadata', 'Sub Bidang', trim($subFieldCode . '. ' . $subFieldName));
+                    $append(
+                        'metadata',
+                        'Kegiatan',
+                        trim(($activityCode !== '' ? $activityCode . '. ' : '') . $activityTitle)
+                    );
+                    $append(
+                        'metadata',
+                        'Waktu Pelaksanaan',
+                        $sourceActivity !== null
+                            ? $this->laporan_normalisasi_teks((string) $sourceActivity[6])
+                            : $activity['waktu_pelaksanaan']
+                    );
+                    $append(
+                        'metadata',
+                        'Output/Keluaran',
+                        $sourceActivity !== null
+                            ? $this->laporan_normalisasi_teks((string) $sourceActivity[7])
+                            : $activity['output']
+                    );
+
+                    $activityTotal = array_sum(array_map($accountAmount, $activity['rekening']));
+                    if ($sourceActivity !== null) {
+                        $append('spacer');
+                        $append('header');
+                        $append('activity_total', '', '', '', null, null, $activityTotal);
+                        foreach ($sourceActivity[8] ?? [] as $packageIndex => $sourcePackage) {
+                            $append(
+                                'package',
+                                (string) ($sourcePackage[0] ?? ''),
+                                $this->laporan_normalisasi_teks((string) ($sourcePackage[1] ?? '')),
+                                '',
+                                null,
+                                null,
+                                (float) ($sourcePackage[2] ?? 0)
+                            );
+                            $appendAccountRows($activity['package_accounts'][(string) $packageIndex] ?? []);
+                        }
+                        $unmatchedAccounts = $activity['package_accounts']['unmatched'] ?? [];
+                        if ($unmatchedAccounts !== []) {
+                            $unmatchedAmount = array_sum(array_map($accountAmount, $unmatchedAccounts));
+                            $append('package', '', 'Paket tidak terpetakan', '', null, null, $unmatchedAmount);
+                            $appendAccountRows($unmatchedAccounts);
+                        }
+                    } else {
+                        $append('header');
+                        $appendAccountRows($activity['rekening']);
+                    }
+                    $append('subtotal', '', 'JUMLAH (Rp)', '', null, null, $activityTotal);
+                    $append('spacer');
+                }
+
+                continue;
+            }
+
+            $accounts = $section['rekening'] ?? [];
+            uksort($accounts, 'strnatcasecmp');
+            if ($accounts === []) {
+                continue;
+            }
+            $rootCode = $reportKey === 'pendapatan' ? '4' : '6';
+            $rootName = $rootNames[$rootCode] ?? strtoupper($reportKey);
+            $total = array_sum(array_map($accountAmount, $accounts));
+            $append('account', $rootCode, $rootName, '', null, null, $reportKey === 'pendapatan' ? $total : null);
+
+            $categoryGroups = [];
+            foreach ($accounts as $code => $account) {
+                $parts = $accountCodeParts($code);
+                $categoryCode = count($parts) >= 2 ? implode('.', array_slice($parts, 0, 2)) . '.' : '';
+                $typeCode = count($parts) >= 3 ? implode('.', array_slice($parts, 0, 3)) . '.' : '';
+                $categoryGroups[$categoryCode][$typeCode][$code] = $account;
+            }
+            uksort($categoryGroups, 'strnatcasecmp');
+            foreach ($categoryGroups as $categoryCode => $types) {
+                $categoryTotal = array_sum(array_map(
+                    static fn (array $typeAccounts): float => array_sum(array_map($accountAmount, $typeAccounts)),
+                    $types
+                ));
+                $append(
+                    'account',
+                    $categoryCode,
+                    $groupNames[rtrim($categoryCode, '.')] ?? '',
+                    '',
+                    null,
+                    null,
+                    $categoryTotal,
+                    1
+                );
+                uksort($types, 'strnatcasecmp');
+                foreach ($types as $typeCode => $typeAccounts) {
+                    $typeTotal = array_sum(array_map($accountAmount, $typeAccounts));
+                    $append(
+                        'account',
+                        $typeCode,
+                        $typeNames[rtrim($typeCode, '.')] ?? '',
+                        '',
+                        null,
+                        null,
+                        $typeTotal,
+                        2
+                    );
+                    uksort($typeAccounts, 'strnatcasecmp');
+                    foreach ($typeAccounts as $code => $account) {
+                        $append(
+                            'account',
+                            $code . '.',
+                            $account['nama'],
+                            '',
+                            null,
+                            null,
+                            $accountAmount($account),
+                            3
+                        );
+                        foreach ($moneyRows($account) as $index => $item) {
+                            $append(
+                                'item',
+                                '',
+                                ($index + 1) . '. ' . (string) $item['keterangan'],
+                                (string) ($item['sumber_dana'] ?? ''),
+                                $item['volume'],
+                                $item['harga_satuan'],
+                                (float) $item['jumlah_menjadi'],
+                                4,
+                                (string) ($item['satuan'] ?? '')
+                            );
+                        }
+                    }
+                }
+            }
+
+            $netTotal = $reportKey === 'pendapatan' ? $total : 0.0;
+            if ($reportKey === 'pembiayaan') {
+                foreach ($accounts as $code => $account) {
+                    if (str_starts_with($code, '6.1.')) {
+                        $netTotal += $accountAmount($account);
+                    } elseif (str_starts_with($code, '6.2.')) {
+                        $netTotal -= $accountAmount($account);
+                    }
+                }
+            }
+            $append(
+                'grand_total',
+                '',
+                $reportKey === 'pendapatan' ? 'JUMLAH PENDAPATAN' : 'PEMBIAYAAN NETTO',
+                '',
+                null,
+                null,
+                $netTotal
+            );
+        }
+
+        return [
+            'rows' => $result,
+            'source_match' => $sourceMatch,
         ];
     }
 
@@ -1365,18 +2562,21 @@ class Keuangan_manual extends Admin_Controller
 
     public function data_anggaran(): void
     {
+        isCan('b', 'input-data');
         $data = $this->keuangan_manual_model->list_apbdes();
         echo json_encode($data, JSON_THROW_ON_ERROR);
     }
 
     public function load_data(): void
     {
+        isCan('b', 'input-data');
         $data = $this->keuangan_manual_model->list_data_keuangan();
         echo json_encode($data, JSON_THROW_ON_ERROR);
     }
 
     public function get_anggaran(): void
     {
+        isCan('b', 'input-data');
         $id   = $this->input->get('id');
         $data = $this->keuangan_manual_model->get_anggaran($id);
         echo json_encode($data, JSON_THROW_ON_ERROR);
@@ -1412,12 +2612,14 @@ class Keuangan_manual extends Admin_Controller
 
     public function delete_all(): void
     {
+        isCan('h');
         $this->keuangan_manual_model->delete_all();
         redirect('keuangan_manual/manual_apbdes');
     }
 
     public function salin_anggaran_tpl()
     {
+        isCan('u');
         $thn_apbdes               = bilangan($this->input->post('kode'));
         $this->session->set_tahun = $thn_apbdes;
         $data                     = $this->keuangan_manual_model->salin_anggaran_tpl($thn_apbdes);
@@ -1542,9 +2744,36 @@ class Keuangan_manual extends Admin_Controller
             : $this->finance_year_filter_data();
     }
 
+    private function rab_permission_slug(?string $pos): string
+    {
+        return [
+            'pendapatan' => 'anggaran-pendapatan',
+            '4.PENDAPATAN' => 'anggaran-pendapatan',
+            'belanja' => 'anggaran-belanja',
+            '5.BELANJA' => 'anggaran-belanja',
+            'pembiayaan' => 'anggaran-pembiayaan',
+            '6.PEMBIAYAAN' => 'anggaran-pembiayaan',
+        ][$pos ?? ''] ?? 'rincian-rab';
+    }
+
+    private function ensure_rab_access(string $access, ?string $pos): void
+    {
+        $slug = $this->rab_permission_slug($pos);
+        if (can('b', $slug) && can($access, $slug)) {
+            return;
+        }
+        if ($slug !== 'rincian-rab'
+            && can('b', 'rincian-rab')
+            && can($access, 'rincian-rab')) {
+            return;
+        }
+
+        isCan($access, $slug);
+    }
+
     private function is_rab_year_context(): bool
     {
-        return in_array($this->router->fetch_method(), ['anggaran_rab', 'rincian_rab'], true);
+        return in_array($this->router->fetch_method(), ['anggaran_rab', 'laporan_anggaran_belanja', 'rincian_rab', 'spp_rab'], true);
     }
 
     private function add_finance_year_filter(array &$data): void

@@ -395,12 +395,16 @@
 			var isBelanja = $('#rab-pos').val() === '5.BELANJA';
 			$('#rab-klasifikasi').toggle(isBelanja);
 			$('#rab-detail-belanja').toggle(isBelanja);
+			$('#rab-pajak-heading, #rab-potongan-heading, #rab-netto-heading, #rab-tax-total, #rab-net-total').toggle(isBelanja);
+			$('#rab-total-label').attr('colspan', isBelanja ? 6 : 5);
+			$('#rab-items .rab-pajak-cell, #rab-items .rab-potongan-cell, #rab-items .rab-netto-cell').toggle(isBelanja);
 			$('#rab-output-options').html((refs.output || []).map(function (item) {
 				return '<option value="' + escapeHtml(item.nama) + '"></option>';
 			}).join(''));
 			if (!isBelanja) {
 				$('#rab-bidang, #rab-sub-bidang, #rab-kegiatan').val('');
 				$('#rab-klasifikasi-belanja').val('');
+				$('#rab-items .rab-pajak').val([]);
 			}
 			if (expenseInput && isBelanja) {
 				populateExpenseClasses('');
@@ -424,13 +428,25 @@
 			var rowAddAction = (incomeInput || expenseInput || financeInput)
 				? '<button type="button" class="btn btn-success btn-xs rab-tambah-baris" title="Tambah baris">' + addItemLabel + '</button> '
 				: '';
+			var taxOptions = (refs.pajak || []).map(function (tax) {
+				var rate = Number(tax.persentase) || 0;
+				return '<option value="' + escapeHtml(tax.id) + '" data-percent="' + escapeHtml(rate) + '">' +
+					escapeHtml(tax.nama + ' (' + rate + '%)') + '</option>';
+			}).join('');
+			var taxSelector = taxOptions
+				? '<select class="form-control rab-pajak" multiple size="3" aria-label="Pilih pajak dan potongan">' + taxOptions + '</select>' +
+					'<small class="text-danger rab-tax-warning" style="display:none;">Jumlah tarif pajak melebihi 100%.</small>'
+				: '<select class="form-control rab-pajak" multiple disabled aria-label="Pilih pajak dan potongan"><option value="" disabled>Tidak ada pajak aktif</option></select>';
 			var row = $('<tr>' +
 				'<td><input type="text" class="form-control rab-keterangan" maxlength="255" required></td>' +
-				'<td><input type="number" class="form-control rab-volume" min="0.0001" step="0.0001" required></td>' +
-				'<td><input type="text" class="form-control rab-satuan" maxlength="50" required></td>' +
+				'<td><input type="number" class="form-control rab-volume" min="0" step="0.0001" required></td>' +
+				'<td><input type="text" class="form-control rab-satuan" maxlength="50"></td>' +
 				'<td><input type="number" class="form-control rab-harga" min="0" step="0.01" required></td>' +
 				'<td><select class="form-control rab-sumber-dana" required></select></td>' +
+				'<td class="rab-pajak-cell">' + taxSelector + '</td>' +
 				'<td class="text-right rab-jumlah">Rp0</td>' +
+				'<td class="text-right rab-potongan-cell rab-potongan">Rp0</td>' +
+				'<td class="text-right rab-netto-cell rab-netto">Rp0</td>' +
 				'<td><input type="hidden" class="rab-item-id">' + rowAddAction + '<button type="button" class="btn btn-danger btn-xs rab-hapus-baris" title="Hapus baris"><i class="fa fa-trash"></i></button></td>' +
 				'</tr>');
 			var fundOptions = '<option value="">Pilih sumber</option>';
@@ -445,21 +461,47 @@
 				row.find('.rab-harga').val(item.harga_satuan);
 				row.find('.rab-sumber-dana').val(item.sumber_dana);
 				row.find('.rab-item-id').val(item.id || '');
+				var selectedTaxes = [];
+				(item.pajak || []).forEach(function (tax) {
+					selectedTaxes.push(String(tax.pajak_id));
+					row.find('.rab-pajak option').filter(function () {
+						return this.value === String(tax.pajak_id);
+					}).attr('data-percent', tax.persentase)
+						.text(tax.nama_pajak + ' (' + tax.persentase + '%)');
+				});
+				row.find('.rab-pajak').val(selectedTaxes);
 			}
 			$('#rab-items').append(row);
+			var isBelanja = $('#rab-pos').val() === '5.BELANJA';
+			row.find('.rab-pajak-cell, .rab-potongan-cell, .rab-netto-cell').toggle(isBelanja);
 			calculateTotal();
 		}
 
 		function calculateTotal() {
 			var total = 0;
+			var totalTax = 0;
 			$('#rab-items tr').each(function () {
 				var row = $(this);
 				var amount = (Number(row.find('.rab-volume').val()) || 0) *
 					(Number(row.find('.rab-harga').val()) || 0);
+				var taxAmount = 0;
+				var totalRate = 0;
+				row.find('.rab-pajak option:selected').each(function () {
+					var rate = Number($(this).attr('data-percent')) || 0;
+					totalRate += rate;
+					taxAmount += Math.round(amount * rate) / 100;
+				});
 				total += amount;
+				totalTax += taxAmount;
 				row.find('.rab-jumlah').text(money(amount));
+				row.find('.rab-potongan').text(money(taxAmount));
+				row.find('.rab-netto').text(money(amount - taxAmount));
+				row.find('.rab-tax-warning').toggle(totalRate > 100);
+				row.data('tax-rate-valid', totalRate <= 100);
 			});
 			$('#rab-total').text(money(total));
+			$('#rab-tax-total').text(money(totalTax));
+			$('#rab-net-total').text(money(total - totalTax));
 		}
 
 		function posLabel(code) {
@@ -517,7 +559,7 @@
 					return;
 				}
 				var klasifikasi = row.pos === '5.BELANJA'
-					? [row.nama_bidang, row.nama_sub_bidang, row.nama_kegiatan].filter(Boolean).join(' / ')
+					? [row.nama_bidang, row.nama_sub_bidang, row.kegiatan_sumber || row.nama_kegiatan].filter(Boolean).join(' / ')
 					: '-';
 				if (row.pos === '5.BELANJA' && row.output) {
 					klasifikasi += ' / Output: ' + row.output;
@@ -591,6 +633,7 @@
 
 		function resetForm() {
 			$('#rab-id').val('');
+			$('#rab-kegiatan-sumber').val('');
 			$('#rab-tahun, #rab-tahap, #rab-pos').prop('disabled', false);
 			$('#rab-edit-notice').hide();
 			$('#rab-tahun').val(globalYear);
@@ -600,7 +643,7 @@
 			$('#rab-pos').val(initialPos || '4.PENDAPATAN');
 			$('#rab-output, #rab-lokasi, #rab-target-sdgs, #rab-pka, #rab-tpk, #rab-data-eksisting, #rab-target-tahun-depan, #rab-volume-rencana, #rab-satuan-rencana, #rab-nama-paket, #rab-kode-paket').val('');
 			$('#expense-waktu').val('');
-			$('#rab-bulan-mulai, #rab-bulan-selesai').val('');
+			$('#rab-bulan-mulai, #rab-bulan-selesai, #rab-waktu-pelaksanaan').val('');
 			$('#rab-penerima-laki, #rab-penerima-perempuan, #rab-penerima-rtm').val('0');
 			$('#rab-perbandingan-wrap').hide();
 			$('#rab-perbandingan').empty();
@@ -633,6 +676,7 @@
 				if (rab.pos === '5.BELANJA') {
 					$('#rab-bidang').val(rab.kd_bidang);
 					populateSubBidang('rab', rab.kd_sub_bidang, rab.kd_kegiatan);
+					$('#rab-kegiatan-sumber').val(rab.kegiatan_sumber || '');
 					$('#rab-klasifikasi-belanja').val(rab.klasifikasi_belanja || '');
 					if (expenseInput) {
 						populateExpenseClasses(rab.klasifikasi_belanja || '');
@@ -643,6 +687,7 @@
 					$('#rab-output').val(rab.output || '');
 					$('#rab-bulan-mulai').val(rab.bulan_mulai || '');
 					$('#rab-bulan-selesai').val(rab.bulan_selesai || '');
+					$('#rab-waktu-pelaksanaan').val(rab.waktu_pelaksanaan || '');
 					$('#rab-penerima-laki').val(rab.penerima_laki || 0);
 					$('#rab-penerima-perempuan').val(rab.penerima_perempuan || 0);
 					$('#rab-penerima-rtm').val(rab.penerima_rtm || 0);
@@ -725,6 +770,7 @@
 			populateExpenseDetails('');
 		});
 		$('#rab-kegiatan').on('change', function () {
+			$('#rab-kegiatan-sumber').val('');
 			if (expenseInput) {
 				populateOutputs($(this).val());
 			}
@@ -735,9 +781,11 @@
 		$('#rab-bulan-mulai, #rab-bulan-selesai').on('change', function () {
 			var start = $('#rab-bulan-mulai option:selected').text();
 			var end = $('#rab-bulan-selesai option:selected').text();
-			$('#expense-waktu').val($('#rab-bulan-mulai').val() && $('#rab-bulan-selesai').val()
+			var period = $('#rab-bulan-mulai').val() && $('#rab-bulan-selesai').val()
 				? start + ' - ' + end
-				: '');
+				: '';
+			$('#expense-waktu').val(period);
+			$('#rab-waktu-pelaksanaan').val(period);
 		});
 		$('#income-kategori').on('change', populateIncomeSubcategories);
 		$('#income-subkategori').on('change', populateIncomeDetails);
@@ -757,7 +805,7 @@
 		$('#btn-tambah-baris-rab').on('click', function () {
 			addItem();
 		});
-		$('#rab-items').on('input change', '.rab-volume, .rab-harga', calculateTotal);
+		$('#rab-items').on('input change', '.rab-volume, .rab-harga, .rab-pajak', calculateTotal);
 		$('#rab-items').on('click', '.rab-hapus-baris', function () {
 			$(this).closest('tr').remove();
 			calculateTotal();
@@ -778,12 +826,20 @@
 			}
 			if (pos === '5.BELANJA' &&
 				(!$('#rab-bidang').val() || !$('#rab-sub-bidang').val() || !$('#rab-kegiatan').val()
-					|| !$('#rab-klasifikasi-belanja').val() || !$('#rab-bulan-mulai').val() || !$('#rab-bulan-selesai').val())) {
+					|| !$('#rab-klasifikasi-belanja').val()
+					|| ((!$('#rab-bulan-mulai').val() || !$('#rab-bulan-selesai').val())
+						&& !$('#rab-waktu-pelaksanaan').val()))) {
 				notify('error', 'Lengkapi bidang, sub bidang, kegiatan, jenis belanja, dan waktu pelaksanaan.');
 				return;
 			}
 			if (expenseInput && $('#rab-klasifikasi-belanja').val() !== String($('#rab-rekening').val() || '').substring(0, 3)) {
 				notify('error', 'Pilih rekening rincian yang sesuai dengan jenis belanja.');
+				return;
+			}
+			if (pos === '5.BELANJA' && rows.filter(function () {
+				return $(this).data('tax-rate-valid') === false;
+			}).length) {
+				notify('error', 'Jumlah tarif pajak dan potongan per item tidak boleh melebihi 100%.');
 				return;
 			}
 
@@ -805,7 +861,8 @@
 					volume: row.find('.rab-volume').val(),
 					satuan: row.find('.rab-satuan').val(),
 					harga_satuan: row.find('.rab-harga').val(),
-					sumber_dana: row.find('.rab-sumber-dana').val()
+					sumber_dana: row.find('.rab-sumber-dana').val(),
+					pajak_ids: row.find('.rab-pajak').val() || []
 				});
 			});
 			if (!valid) {
@@ -829,11 +886,13 @@
 					kd_bidang: $('#rab-bidang').val(),
 					kd_sub_bidang: $('#rab-sub-bidang').val(),
 					kd_kegiatan: $('#rab-kegiatan').val(),
+					kegiatan_sumber: $('#rab-kegiatan-sumber').val(),
 					kd_rekening: $('#rab-rekening').val(),
 					klasifikasi_belanja: $('#rab-klasifikasi-belanja').val(),
 					output: $('#rab-output').val(),
 					bulan_mulai: $('#rab-bulan-mulai').val(),
 					bulan_selesai: $('#rab-bulan-selesai').val(),
+					waktu_pelaksanaan: $('#rab-waktu-pelaksanaan').val(),
 					penerima_laki: $('#rab-penerima-laki').val(),
 					penerima_perempuan: $('#rab-penerima-perempuan').val(),
 					penerima_rtm: $('#rab-penerima-rtm').val(),

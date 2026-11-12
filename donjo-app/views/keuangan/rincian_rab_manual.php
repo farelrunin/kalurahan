@@ -30,7 +30,11 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 		<ol class="breadcrumb">
 			<li><a href="<?= site_url('beranda') ?>"><i class="fa fa-home"></i> Beranda</a></li>
 			<li>Anggaran</li>
-			<li><a href="<?= site_url('keuangan_manual/anggaran_rab/' . strtolower($page_title)) ?>"><?= html_escape($page_title) ?></a></li>
+			<?php if ($initial_pos !== ''): ?>
+				<li><a href="<?= site_url('keuangan_manual/anggaran_rab/' . strtolower($page_title)) ?>"><?= html_escape($page_title) ?></a></li>
+			<?php else: ?>
+				<li><?= html_escape($page_title) ?></li>
+			<?php endif; ?>
 			<li class="active"><?= $initial_mode === 'input' ? 'Input / Entry' : ($initial_mode === 'lihat' ? 'Lihat Data' : ($initial_mode === 'perubahan' ? 'Perubahan' : 'Rincian e-RAB')) ?></li>
 		</ol>
 	</section>
@@ -501,6 +505,10 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 											<?php endforeach; ?>
 										</select>
 									</div>
+									<div class="col-md-4 form-group">
+										<label for="rab-waktu-pelaksanaan">Waktu Pelaksanaan (teks sumber)</label>
+										<input type="text" class="form-control" id="rab-waktu-pelaksanaan" maxlength="100" placeholder="Mis. 3 BULAN">
+									</div>
 								</div>
 								<div class="row">
 									<div class="col-md-4 form-group"><label>Laki-laki</label><input type="number" min="0" class="form-control" id="rab-penerima-laki" value="0"></div>
@@ -662,6 +670,12 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 									</select>
 								</div>
 							</div>
+							<div class="col-md-4">
+								<div class="form-group">
+									<label for="rab-waktu-pelaksanaan">Waktu Pelaksanaan (teks sumber)</label>
+									<input type="text" class="form-control" id="rab-waktu-pelaksanaan" maxlength="100" placeholder="Mis. 3 BULAN">
+								</div>
+							</div>
 							<div class="col-md-2">
 								<div class="form-group">
 									<label for="rab-penerima-laki">Laki-laki</label>
@@ -747,6 +761,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 					<?php endif; ?>
 
 					<input type="hidden" id="rab-id">
+					<input type="hidden" id="rab-kegiatan-sumber">
 					<hr>
 					<div class="clearfix">
 						<h3 class="pull-left" style="margin-top: 0;">Rincian Item Anggaran</h3>
@@ -763,20 +778,31 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 									<th style="min-width: 95px;">Satuan</th>
 									<th style="min-width: 135px;">Harga Satuan</th>
 									<th style="min-width: 130px;">Sumber Dana</th>
-									<th style="min-width: 140px;">Total Jumlah</th>
+									<th id="rab-pajak-heading" style="min-width: 190px;">Pajak / Potongan</th>
+									<th style="min-width: 140px;">Jumlah Bruto</th>
+									<th id="rab-potongan-heading" style="min-width: 140px;">Potongan Pajak</th>
+									<th id="rab-netto-heading" style="min-width: 140px;">Jumlah Netto</th>
 									<th>Aksi</th>
 								</tr>
 							</thead>
 							<tbody id="rab-items"></tbody>
 							<tfoot>
 								<tr>
-									<th colspan="5" class="text-right">Total</th>
+									<th id="rab-total-label" colspan="6" class="text-right">Total</th>
 									<th id="rab-total" class="text-right">Rp0</th>
+									<th id="rab-tax-total" class="text-right">Rp0</th>
+									<th id="rab-net-total" class="text-right">Rp0</th>
 									<th></th>
 								</tr>
 							</tfoot>
 						</table>
 					</div>
+					<p class="text-muted">
+						Potongan dihitung dari jumlah bruto menggunakan tarif yang tersimpan pada rincian.
+						<?php if ($is_expense): ?>
+							Pencatatan pembayaran dan selisih bayar tersedia pada <a href="<?= site_url('keuangan_manual/spp_rab?' . http_build_query(['tahun_anggaran' => $finance_filter_year, 'tahap' => 'murni'])) ?>">SPP &amp; Kuitansi</a>.
+						<?php endif; ?>
+					</p>
 					<div class="text-right">
 						<button type="button" class="btn btn-default" id="btn-reset-rab">Reset</button>
 						<button type="button" class="btn btn-primary" id="btn-simpan-rab">
