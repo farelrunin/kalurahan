@@ -26,6 +26,48 @@ function _error(pesan) {
   });
 }
 
+function confirmWithSwal(message, callback) {
+  if (typeof Swal === 'undefined' || typeof Swal.fire !== 'function') {
+    return window.confirm(message);
+  }
+
+  Swal.fire({
+    title: 'Konfirmasi',
+    html: message,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'OK',
+    cancelButtonText: 'Batal',
+    reverseButtons: true,
+    customClass: {
+      popup: 'swal2-popup premium-notification',
+      title: 'swal2-title premium-notification__title',
+      htmlContainer: 'swal2-content premium-notification__content',
+      confirmButton: 'swal2-confirm premium-notification__button',
+      cancelButton: 'swal2-cancel premium-notification__button premium-notification__button--secondary'
+    },
+    allowOutsideClick: false,
+  }).then(function (result) {
+    if (typeof callback === 'function') {
+      callback(result.isConfirmed);
+    }
+  });
+
+  return false;
+}
+
+$(document).on('submit', 'form[data-confirm]', function (event) {
+  event.preventDefault();
+  var form = this;
+  var message = form.getAttribute('data-confirm') || 'Apakah Anda yakin?';
+
+  confirmWithSwal(message, function (confirmed) {
+    if (confirmed) {
+      form.submit();
+    }
+  });
+});
+
 $(".sidebar-toggle").on("click", function () {
   localStorage.setItem(
     "sidebar",

@@ -68,8 +68,13 @@
 		function notify(type, message) {
 			if (typeof notification === 'function') {
 				notification(type, message);
-			} else {
-				window.alert(message);
+			} else if (window.Swal && typeof Swal.fire === 'function') {
+				Swal.fire({
+					title: type === 'error' ? 'Gagal' : (type === 'warning' ? 'Peringatan' : 'Informasi'),
+					text: message,
+					icon: type === 'error' ? 'error' : (type === 'warning' ? 'warning' : 'info'),
+					confirmButtonText: 'OK'
+				});
 			}
 		}
 
@@ -1535,21 +1540,23 @@
 			}
 			if (financeView) {
 				var targetYear = Number($('#finance-sidebar-year').val()) || globalYear;
-				if (!window.confirm('Salin rincian Pembiayaan tahun lalu ke tahun anggaran ' + targetYear + '?')) {
-					return;
-				}
-				$.ajax({
-					url: api.copy_previous_year,
-					type: 'POST',
-					dataType: 'json',
-					data: $.extend({ id: sourceId, tahun: targetYear, pos: '6.PEMBIAYAAN' }, csrfData())
-				}).done(function (response) {
-					refreshCsrf(response);
-					notify('success', response.message);
-					$('#finance-source-wrap').hide();
-					loadRows();
-				}).fail(function (xhr) {
-					notify('error', requestError(xhr, 'Gagal mengimpor Pembiayaan tahun lalu'));
+				confirmWithSwal('Salin rincian Pembiayaan tahun lalu ke tahun anggaran ' + targetYear + '?', function (confirmed) {
+					if (!confirmed) {
+						return;
+					}
+					$.ajax({
+						url: api.copy_previous_year,
+						type: 'POST',
+						dataType: 'json',
+						data: $.extend({ id: sourceId, tahun: targetYear, pos: '6.PEMBIAYAAN' }, csrfData())
+					}).done(function (response) {
+						refreshCsrf(response);
+						notify('success', response.message);
+						$('#finance-source-wrap').hide();
+						loadRows();
+					}).fail(function (xhr) {
+						notify('error', requestError(xhr, 'Gagal mengimpor Pembiayaan tahun lalu'));
+					});
 				});
 				return;
 			}
@@ -1580,20 +1587,22 @@
 		$('#rab-daftar').on('click', '.rab-delete-item', function () {
 			var rabId = $(this).data('rab-id');
 			var itemId = $(this).data('item-id');
-			if (!window.confirm('Hapus rincian item ini?')) {
-				return;
-			}
-			$.ajax({
-				url: api.delete_item + '/' + encodeURIComponent(rabId) + '/' + encodeURIComponent(itemId),
-				type: 'POST',
-				dataType: 'json',
-				data: csrfData()
-			}).done(function (response) {
-				refreshCsrf(response);
-				notify('success', response.message);
-				loadRows();
-			}).fail(function (xhr) {
-				notify('error', requestError(xhr, 'Gagal menghapus rincian item'));
+			confirmWithSwal('Hapus rincian item ini?', function (confirmed) {
+				if (!confirmed) {
+					return;
+				}
+				$.ajax({
+					url: api.delete_item + '/' + encodeURIComponent(rabId) + '/' + encodeURIComponent(itemId),
+					type: 'POST',
+					dataType: 'json',
+					data: csrfData()
+				}).done(function (response) {
+					refreshCsrf(response);
+					notify('success', response.message);
+					loadRows();
+				}).fail(function (xhr) {
+					notify('error', requestError(xhr, 'Gagal menghapus rincian item'));
+				});
 			});
 		});
 		$('#rab-daftar').on('click', '.rab-view', function () {
@@ -1617,20 +1626,22 @@
 		});
 		$('#rab-daftar').on('click', '.rab-copy', function () {
 			var id = $(this).data('id');
-			if (!window.confirm('Salin rincian anggaran Murni ini ke P-APBDes?')) {
-				return;
-			}
-			$.ajax({
-				url: api.copy + '/' + encodeURIComponent(id),
-				type: 'POST',
-				dataType: 'json',
-				data: csrfData()
-			}).done(function (response) {
-				refreshCsrf(response);
-				notify('success', response.message);
-				loadRows();
-			}).fail(function (xhr) {
-				notify('error', requestError(xhr, 'Gagal menyalin anggaran'));
+			confirmWithSwal('Salin rincian anggaran Murni ini ke P-APBDes?', function (confirmed) {
+				if (!confirmed) {
+					return;
+				}
+				$.ajax({
+					url: api.copy + '/' + encodeURIComponent(id),
+					type: 'POST',
+					dataType: 'json',
+					data: csrfData()
+				}).done(function (response) {
+					refreshCsrf(response);
+					notify('success', response.message);
+					loadRows();
+				}).fail(function (xhr) {
+					notify('error', requestError(xhr, 'Gagal menyalin anggaran'));
+				});
 			});
 		});
 		function loadExpenseSources(year, targetSelector) {
@@ -1751,47 +1762,51 @@
 				notify('error', 'Pilih rincian anggaran tahun lalu yang akan diimpor.');
 				return;
 			}
-			if (!window.confirm('Salin rincian e-RAB Murni tahun lalu sebagai anggaran baru tahun ' +
-				globalYear + '?')) {
-				return;
-			}
-			$.ajax({
-				url: api.copy_previous_year,
-				type: 'POST',
-				dataType: 'json',
-				data: $.extend({
-					id: sourceId,
-					tahun: globalYear,
-					pos: '5.BELANJA'
-				}, csrfData())
-			}).done(function (response) {
-				refreshCsrf(response);
-				notify('success', response.message);
-				$('#expense-import-source').hide();
-				$('#filter-tahun').val(globalYear);
-				$('#filter-tahap').val('Murni');
-				$('#filter-pos').val('5.BELANJA');
-				loadRows();
-			}).fail(function (xhr) {
-				notify('error', requestError(xhr, 'Gagal mengimpor anggaran tahun lalu'));
+			confirmWithSwal('Salin rincian e-RAB Murni tahun lalu sebagai anggaran baru tahun ' +
+				globalYear + '?', function (confirmed) {
+				if (!confirmed) {
+					return;
+				}
+				$.ajax({
+					url: api.copy_previous_year,
+					type: 'POST',
+					dataType: 'json',
+					data: $.extend({
+						id: sourceId,
+						tahun: globalYear,
+						pos: '5.BELANJA'
+					}, csrfData())
+				}).done(function (response) {
+					refreshCsrf(response);
+					notify('success', response.message);
+					$('#expense-import-source').hide();
+					$('#filter-tahun').val(globalYear);
+					$('#filter-tahap').val('Murni');
+					$('#filter-pos').val('5.BELANJA');
+					loadRows();
+				}).fail(function (xhr) {
+					notify('error', requestError(xhr, 'Gagal mengimpor anggaran tahun lalu'));
+				});
 			});
 		});
 		$('#rab-daftar').on('click', '.rab-delete', function () {
 			var id = $(this).data('id');
-			if (!window.confirm('Hapus rincian anggaran ini beserta semua itemnya?')) {
-				return;
-			}
-			$.ajax({
-				url: api.delete + '/' + encodeURIComponent(id),
-				type: 'POST',
-				dataType: 'json',
-				data: csrfData()
-			}).done(function (response) {
-				refreshCsrf(response);
-				notify('success', response.message);
-				loadRows();
-			}).fail(function (xhr) {
-				notify('error', requestError(xhr, 'Gagal menghapus rincian anggaran'));
+			confirmWithSwal('Hapus rincian anggaran ini beserta semua itemnya?', function (confirmed) {
+				if (!confirmed) {
+					return;
+				}
+				$.ajax({
+					url: api.delete + '/' + encodeURIComponent(id),
+					type: 'POST',
+					dataType: 'json',
+					data: csrfData()
+				}).done(function (response) {
+					refreshCsrf(response);
+					notify('success', response.message);
+					loadRows();
+				}).fail(function (xhr) {
+					notify('error', requestError(xhr, 'Gagal menghapus rincian anggaran'));
+				});
 			});
 		});
 

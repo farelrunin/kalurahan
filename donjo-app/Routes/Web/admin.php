@@ -1304,6 +1304,9 @@ Route::group('keuangan_manual', static function (): void {
     Route::match(['GET', 'POST'], '/kuitansi_item_rab/{id}', 'Keuangan_manual@kuitansi_item_rab')->name('keuangan_manual.kuitansi_item_rab');
     Route::get('/cetak_kuitansi_item_rab/{id}', 'Keuangan_manual@cetak_kuitansi_item_rab')->name('keuangan_manual.cetak_kuitansi_item_rab');
     Route::match(['GET', 'POST'], '/parameter_rab', 'Keuangan_manual@parameter_rab')->name('keuangan_manual.parameter_rab');
+    Route::match(['GET', 'POST'], '/parameter_pajak_rab', 'Keuangan_manual@parameter_pajak_rab_route')->name('keuangan_manual.parameter_pajak_rab');
+    Route::match(['GET', 'POST'], '/parameter_rekening_rab', 'Keuangan_manual@parameter_rekening_rab_route')->name('keuangan_manual.parameter_rekening_rab');
+    Route::match(['GET', 'POST'], '/parameter_output_rab', 'Keuangan_manual@parameter_output_rab_route')->name('keuangan_manual.parameter_output_rab');
     Route::get('/ekspor_parameter_katalog_rab/{jenis}/{format}', 'Keuangan_manual@ekspor_parameter_katalog_rab')->name('keuangan_manual.ekspor_parameter_katalog_rab');
     Route::get('/template_parameter_katalog_rab/{jenis}', 'Keuangan_manual@unduh_template_parameter_katalog_rab')->name('keuangan_manual.template_parameter_katalog_rab');
     Route::get('/ekspor_parameter_rab/{format}', 'Keuangan_manual@ekspor_parameter_rab')->name('keuangan_manual.ekspor_parameter_rab');

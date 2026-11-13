@@ -94,10 +94,20 @@ if (! function_exists('can')) {
             return true;
         }
 
-        $grupId = ci_auth()->id_grup;
+        $user = ci_auth();
+        if (! $user) {
+            return false;
+        }
 
-        $data = cache()->remember("akses_grup_{$grupId}", 604800, static function () use ($grupId) {
-            $slugGrup = UserGrup::find($grupId)->slug;
+        $grupId = (int) $user->id_grup;
+
+        $loadAksesGrup = static function () use ($grupId) {
+            $group = UserGrup::find($grupId);
+            if (! $group) {
+                return [];
+            }
+
+            $slugGrup = $group->slug;
             if (in_array($grupId, UserGrup::getGrupIdAksesGrupBawaan())) {
                 $grup = UserGrup::getAksesGrupBawaan()[$slugGrup] ?? [];
 
@@ -111,13 +121,12 @@ if (! function_exists('can')) {
                 }
 
                 return $grupAkses->mapWithKeys(static function ($item) use ($grupId, $rbac, $grup) {
-                    $rbac ??= $grup[$item->slug];
+                    $rbac ??= $grup[$item->slug] ?? 0;
                     $rbac = $rbac === 0 ? 1 : $rbac;
 
                     return [
                         $item->slug => [
                             'id_modul' => $item->id,
-                            // 'parent_slug' => Modul::find($item->parent)->slug ?? null,
                             'id_grup' => $grupId,
                             'akses'   => $rbac,
                             'baca'    => $rbac >= 1,
@@ -127,17 +136,15 @@ if (! function_exists('can')) {
                     ];
                 })->toArray();
             }
+
             $grupAkses = GrupAkses::leftJoin('setting_modul as s1', 'grup_akses.id_modul', '=', 's1.id')
-                // ->leftJoin('setting_modul as s2', 's1.parent', '=', 's2.id')
                 ->where('id_grup', $grupId)
                 ->select('grup_akses.*', 's1.slug as slug')
-                // ->select('s2.slug as parent_slug')
                 ->get();
 
             return $grupAkses->mapWithKeys(static fn ($item) => [
                 $item->slug => [
                     'id_modul' => $item->id_modul,
-                    // 'parent_slug' => $item->parent_slug,
                     'id_grup' => $item->id_grup,
                     'akses'   => $item->akses,
                     'baca'    => $item->akses >= 1,
@@ -145,7 +152,23 @@ if (! function_exists('can')) {
                     'hapus'   => $item->akses >= 7,
                 ],
             ])->toArray();
-        });
+        };
+
+        $cacheKey = "akses_grup_{$grupId}";
+        $data = cache()->remember($cacheKey, 604800, $loadAksesGrup);
+
+        if (! is_array($data)) {
+            $data = $loadAksesGrup();
+            cache()->put($cacheKey, $data, 604800);
+        }
+
+        if (null !== $slugModul && (! array_key_exists($slugModul, $data ?? []))) {
+            $fresh = $loadAksesGrup();
+            if (is_array($fresh) && array_key_exists($slugModul, $fresh)) {
+                $data = $fresh;
+                cache()->put($cacheKey, $data, 604800);
+            }
+        }
 
         if (null === $akses) {
             return $data;
@@ -165,11 +188,32 @@ if (! function_exists('can')) {
             return false;
         }
 
-        if ($adminOnly && ci_auth()->id != super_admin()) {
+        if ($adminOnly && $user->id != super_admin()) {
             return false;
         }
 
-        return $data[$slugModul][$alias[$akses]];
+        if (! is_array($data) || ! isset($data[$slugModul])) {
+            $resolvedSlug = null;
+            if (is_array($data)) {
+                $needle = strtolower((string) $slugModul);
+                foreach (array_keys($data) as $candidate) {
+                    $candidateLower = strtolower((string) $candidate);
+                    $samePrefix = strncmp($candidateLower, $needle, strlen($needle)) === 0 || strncmp($needle, $candidateLower, strlen($candidateLower)) === 0;
+                    if ($candidateLower === $needle || $samePrefix) {
+                        $resolvedSlug = $candidate;
+                        break;
+                    }
+                }
+            }
+
+            if ($resolvedSlug === null) {
+                return false;
+            }
+
+            $slugModul = $resolvedSlug;
+        }
+
+        return (bool) ($data[$slugModul][$alias[$akses]] ?? false);
     }
 }
 

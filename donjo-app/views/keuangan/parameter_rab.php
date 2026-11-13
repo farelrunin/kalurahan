@@ -141,7 +141,7 @@ $parentOptions = static function (array $rows, string $type) use ($jsonFlags): s
 														</button>
 													<?php endif; ?>
 													<?php if ($can_delete): ?>
-														<form method="post" action="<?= site_url('keuangan_manual/parameter_rab') ?>" style="display:inline" onsubmit="return confirm('Nonaktifkan parameter ini? Data e-RAB lama tetap disimpan.');">
+																<form method="post" action="<?= site_url('keuangan_manual/parameter_rab') ?>" style="display:inline" data-confirm="Nonaktifkan parameter ini? Data e-RAB lama tetap disimpan.">
 															<input type="hidden" name="action" value="hapus">
 															<input type="hidden" name="id" value="<?= (int) $parameter['id'] ?>">
 															<button type="submit" class="btn btn-danger btn-xs"><i class="fa fa-ban"></i> Nonaktifkan</button>

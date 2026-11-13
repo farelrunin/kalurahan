@@ -1262,6 +1262,21 @@ class Keuangan_manual extends Admin_Controller
         $this->render('keuangan/parameter_bidang_kegiatan', $data);
     }
 
+    public function parameter_pajak_rab_route(): void
+    {
+        $this->parameter_pajak_rab();
+    }
+
+    public function parameter_rekening_rab_route(): void
+    {
+        $this->parameter_katalog_rab('rekening');
+    }
+
+    public function parameter_output_rab_route(): void
+    {
+        $this->parameter_katalog_rab('output');
+    }
+
     private function parameter_pajak_rab(): void
     {
         $slug = 'param-pajak';

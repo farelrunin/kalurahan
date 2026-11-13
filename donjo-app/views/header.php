@@ -45,7 +45,6 @@
     <?php if ($this->controller == 'bumindes_kader') : ?>
         <link rel="stylesheet" href="<?= asset('bootstrap/css/bootstrap-tokenfield.min.css') ?>">
     <?php endif ?>
-    <link rel="stylesheet" href="<?= asset('css/admin-style.css') ?>">
     <!-- OpenStreetMap Css -->
     <link rel="stylesheet" href="<?= asset('css/leaflet.css') ?>">
     <link rel="stylesheet" href="<?= asset('css/leaflet-geoman.css') ?>">
@@ -62,6 +61,7 @@
 
     <!-- Sweet Alert -->
     <link rel="stylesheet" href="<?= asset('js/sweetalert2/sweetalert2.min.css') ?>">
+    <link rel="stylesheet" href="<?= asset('css/admin-style.css') ?>">
 
     <style>
         @media (max-width: 576px) {
@@ -101,7 +101,25 @@
     <script src="<?= asset('js/leaflet.browser.print.sizes.js') ?>"></script>
     <script src="<?= asset('js/dom-to-image.min.js') ?>"></script>
     <script src="<?= asset('js/toastr.min.js') ?>"></script>
-
+    <script>
+        if (typeof toastr !== 'undefined') {
+            toastr.options = {
+                closeButton: true,
+                newestOnTop: true,
+                progressBar: true,
+                positionClass: 'toast-top-right',
+                preventDuplicates: false,
+                showDuration: 300,
+                hideDuration: 220,
+                timeOut: 3500,
+                extendedTimeOut: 2000,
+                showEasing: 'swing',
+                hideEasing: 'linear',
+                showMethod: 'fadeIn',
+                hideMethod: 'fadeOut'
+            };
+        }
+    </script>
 
     <!-- Diperlukan untuk global automatic base_url oleh external js file -->
     <script type="text/javascript">

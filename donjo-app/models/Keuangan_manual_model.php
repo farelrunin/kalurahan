@@ -2786,25 +2786,32 @@ class Keuangan_manual_model extends MY_Model
             }
         }
 
-        $duplicate = $this->config_id()
+        $existing = $this->config_id()
             ->where('jenis', $data['jenis'])
             ->where('kode', $data['kode'])
-            ->where('id !=', $id)
-            ->count_all_results('keuangan_manual_ref_parameter');
-        if ($data['kode'] !== null && $duplicate > 0) {
-            return false;
+            ->get('keuangan_manual_ref_parameter')
+            ->row_array();
+        if (! empty($existing)) {
+            if ((int) $existing['aktif'] === 1 && (int) $existing['id'] !== $id) {
+                return false;
+            }
+            if ($id > 0 && (int) $existing['id'] !== $id) {
+                return false;
+            }
+            $id = (int) $existing['id'];
         }
 
         if ($id > 0) {
-            $existing = $this->config_id()->where('id', $id)->get('keuangan_manual_ref_parameter')->row_array();
-            if (empty($existing) || $existing['jenis'] !== $data['jenis']) {
+            $current = $this->config_id()->where('id', $id)->get('keuangan_manual_ref_parameter')->row_array();
+            if (empty($current) || $current['jenis'] !== $data['jenis']) {
                 return false;
             }
-            if ($existing['kode'] !== $data['kode']
+            if ($current['kode'] !== $data['kode']
                 && $this->config_id()->where('parent_id', $id)->where('aktif', 1)
                     ->count_all_results('keuangan_manual_ref_parameter') > 0) {
                 return false;
             }
+            $data['aktif'] = 1;
             $this->config_id()->where('id', $id)->update('keuangan_manual_ref_parameter', $data);
 
             return $id;

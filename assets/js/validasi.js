@@ -343,10 +343,13 @@ $(document).ready(function() {
 	}, "Harus 8 sampai 20 karakter dan sekurangnya berisi satu angka dan satu huruf besar dan satu huruf kecil dan satu karakter khusus");
 
 	$('.pwdLengthNist').each(function() {
-		$(this).rules("add",
-			{
-				pwdLengthNist: true,
-			});
+		var form = $(this).closest('form');
+		if (!form.length || !form.data('validator')) {
+			return;
+		}
+		$(this).rules('add', {
+			pwdLengthNist: true,
+		});
 	});
 
 	// Ketentuan kata sandi sesuai US National Institute of Standards and Technology (NIST)

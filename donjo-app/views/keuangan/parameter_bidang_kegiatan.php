@@ -460,7 +460,7 @@ $parentOptions = static function (array $rows, string $parentType): string {
 												</button>
 											<?php endif; ?>
 											<?php if ($can_delete): ?>
-												<form method="post" action="<?= site_url('keuangan_manual/parameter_rab') ?>" style="display:inline" onsubmit="return confirm('Hapus parameter ini? Parameter induk yang masih memiliki turunan tidak dapat dihapus.');">
+												<form method="post" action="<?= site_url('keuangan_manual/parameter_rab') ?>" style="display:inline" data-confirm="Hapus parameter ini? Parameter induk yang masih memiliki turunan tidak dapat dihapus.">
 													<input type="hidden" name="action" value="hapus">
 													<input type="hidden" name="id" value="<?= (int) $parameter['id'] ?>">
 													<button type="submit" class="btn btn-danger btn-xs parameter-delete-button" title="Hapus parameter" aria-label="Hapus parameter"><i class="fa fa-trash-o"></i></button>

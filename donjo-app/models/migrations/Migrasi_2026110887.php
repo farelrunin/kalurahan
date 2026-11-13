@@ -17,6 +17,7 @@ class Migrasi_2026110887 extends MY_model
                     'param-bidang-kegiatan' => ['Bidang dan Kegiatan', 'keuangan_manual/parameter_rab', 'fa-circle-o', 1],
                     'param-rekening-apbdesa' => ['Rekening APBDesa', 'keuangan_manual/parameter_rab?jenis=rekening', 'fa-circle-o', 2],
                     'param-output-keluaran' => ['Output/Keluaran', 'keuangan_manual/parameter_rab?jenis=output', 'fa-circle-o', 3],
+                    'param-pajak' => ['Pajak / Potongan', 'keuangan_manual/parameter_rab?jenis=pajak', 'fa-percent', 4],
                 ],
             ],
             'anggaran-keuangan' => [

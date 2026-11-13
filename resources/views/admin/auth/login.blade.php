@@ -8,6 +8,7 @@
 
 @section('content')
     <form id="validasi" class="login-form" action="{{ $form_action }}" method="post">
+        <input type="hidden" name="{{ $ci->security->get_csrf_token_name() }}" value="{{ $ci->security->get_csrf_hash() }}">
         <div class="form-group">
             <input
                 name="username"

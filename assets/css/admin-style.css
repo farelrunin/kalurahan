@@ -617,6 +617,242 @@ span.select2.select2-container {
     margin-top: 5px;
 }
 
+/* Animasi popup final global untuk semua fitur */
+@keyframes popup-final-in {
+    0% {
+        opacity: 0;
+        transform: scale(0.98) translateY(12px);
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes popup-final-out {
+    0% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.985) translateY(8px);
+    }
+}
+
+@keyframes backdrop-final {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 0.52;
+    }
+}
+
+@keyframes toast-final-in {
+    0% {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes toast-final-out {
+    0% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+}
+
+.modal.in .modal-dialog,
+.modal.fade.in .modal-dialog,
+#modalBox .modal-dialog,
+.swal2-popup.swal2-show,
+.swal2-popup,
+#toast-container > div,
+.toastr,
+.toast {
+    animation: popup-final-in 0.24s ease both;
+    transform-origin: center center;
+}
+
+.swal2-popup.swal2-toast,
+#toast-container > div,
+.toastr,
+.toast {
+    animation: toast-final-in 0.2s ease both;
+}
+
+.modal.fade .modal-dialog,
+.swal2-popup.swal2-hide,
+#toast-container > div.toast-success,
+#toast-container > div.toast-error,
+#toast-container > div.toast-info,
+#toast-container > div.toast-warning {
+    animation: popup-final-out 0.16s ease forwards;
+}
+
+#toast-container > div.toast-success,
+#toast-container > div.toast-error,
+#toast-container > div.toast-info,
+#toast-container > div.toast-warning {
+    animation: toast-final-out 0.16s ease forwards;
+}
+
+.modal-backdrop {
+    animation: backdrop-final 0.18s ease both;
+}
+
+#toast-container {
+    z-index: 99999;
+}
+
+#toast-container > div {
+    opacity: 1 !important;
+    margin: 0 0 12px 0 !important;
+    padding: 14px 16px 14px 18px !important;
+    border-radius: 12px !important;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12) !important;
+    border: 1px solid rgba(15, 23, 42, 0.06) !important;
+    background: rgba(255, 255, 255, 0.97) !important;
+    color: #1f2937 !important;
+    font-weight: 500 !important;
+    line-height: 1.5 !important;
+    border-left-width: 5px !important;
+    border-left-style: solid !important;
+    min-height: 64px;
+    filter: none !important;
+}
+
+#toast-container > div.toast-success {
+    border-left-color: #22c55e;
+    background: linear-gradient(180deg, rgba(240, 253, 244, 0.99), rgba(255,255,255,0.98)) !important;
+}
+
+#toast-container > div.toast-error {
+    border-left-color: #ef4444;
+    background: linear-gradient(180deg, rgba(254, 242, 242, 0.99), rgba(255,255,255,0.98)) !important;
+}
+
+#toast-container > div.toast-info {
+    border-left-color: #3b82f6;
+    background: linear-gradient(180deg, rgba(239, 246, 255, 0.99), rgba(255,255,255,0.98)) !important;
+}
+
+#toast-container > div.toast-warning {
+    border-left-color: #f59e0b;
+    background: linear-gradient(180deg, rgba(255, 251, 235, 0.99), rgba(255,255,255,0.98)) !important;
+}
+
+#toast-container > div.toast-success *,
+#toast-container > div.toast-error *,
+#toast-container > div.toast-info *,
+#toast-container > div.toast-warning * {
+    color: #1f2937 !important;
+}
+
+#toast-container > div .toast-title,
+#toast-container > div .toast-message {
+    display: block;
+    color: #1f2937 !important;
+}
+
+.modal-content,
+.swal2-popup,
+#toast-container > div,
+.toastr,
+.toast {
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1) !important;
+    border: 1px solid rgba(0, 0, 0, 0.04) !important;
+    border-radius: 10px !important;
+}
+
+.swal2-container {
+    backdrop-filter: blur(1px);
+}
+
+.modal-content,
+.swal2-popup {
+    background: linear-gradient(180deg, rgba(255,255,255,0.985), rgba(248,250,252,0.97)) !important;
+}
+
+.modal-content {
+    border-top: 3px solid #3b82f6 !important;
+}
+
+.swal2-title,
+.modal-title {
+    color: #1f2937 !important;
+    font-weight: 600 !important;
+}
+
+.swal2-content,
+.modal-body,
+.fetched-data {
+    color: #475569;
+}
+
+.swal2-confirm,
+.swal2-deny,
+.swal2-cancel,
+.btn-primary,
+.btn-success,
+.btn-danger,
+.btn-warning {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+
+.swal2-confirm,
+.btn-primary,
+.btn-success {
+    background: linear-gradient(180deg, #3b82f6, #2563eb) !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.18) !important;
+}
+
+.swal2-deny,
+.btn-warning {
+    background: linear-gradient(180deg, #fbbf24, #f59e0b) !important;
+    border-color: #f59e0b !important;
+    box-shadow: 0 4px 10px rgba(245, 158, 11, 0.18) !important;
+}
+
+.swal2-cancel,
+.btn-danger {
+    background: linear-gradient(180deg, #f87171, #ef4444) !important;
+    border-color: #ef4444 !important;
+    box-shadow: 0 4px 10px rgba(239, 68, 68, 0.18) !important;
+}
+
+.swal2-confirm:hover,
+.swal2-deny:hover,
+.swal2-cancel:hover,
+.btn-primary:hover,
+.btn-success:hover,
+.btn-danger:hover,
+.btn-warning:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 12px rgba(15, 23, 42, 0.08);
+    filter: brightness(1.02);
+}
+
+.swal2-confirm:active,
+.swal2-deny:active,
+.swal2-cancel:active,
+.btn-primary:active,
+.btn-success:active,
+.btn-danger:active,
+.btn-warning:active {
+    transform: translateY(0);
+}
+
 
 /* Modal Dialog untuk tampilan rilis */
 .rilis {

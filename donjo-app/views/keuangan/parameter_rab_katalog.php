@@ -357,7 +357,7 @@ $isOutput = $jenis === 'output';
 													<button type="button" class="btn btn-warning btn-xs catalog-edit-button" title="Ubah" aria-label="Ubah" data-parameter="<?= html_escape(json_encode($parameter, $jsonFlags)) ?>"><i class="fa fa-pencil"></i></button>
 												<?php endif; ?>
 												<?php if ($can_delete): ?>
-													<form method="post" action="<?= site_url('keuangan_manual/parameter_rab?jenis=' . $jenis) ?>" onsubmit="return confirm('Nonaktifkan parameter ini?');">
+														<form method="post" action="<?= site_url('keuangan_manual/parameter_rab?jenis=' . $jenis) ?>" data-confirm="Nonaktifkan parameter ini?">
 														<input type="hidden" name="action" value="hapus">
 														<input type="hidden" name="jenis_parameter" value="<?= html_escape($jenis) ?>">
 														<input type="hidden" name="id" value="<?= (int) $parameter['id'] ?>">

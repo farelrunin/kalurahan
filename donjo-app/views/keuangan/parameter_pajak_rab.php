@@ -107,7 +107,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 												</button>
 											<?php endif; ?>
 											<?php if ($can_delete): ?>
-												<form method="post" action="<?= site_url('keuangan_manual/parameter_rab?jenis=pajak') ?>" style="display:inline;" onsubmit="return confirm('Hapus jenis pajak ini? Pajak yang sudah dipakai pada rincian belanja tidak dapat dihapus.');">
+															<form method="post" action="<?= site_url('keuangan_manual/parameter_rab?jenis=pajak') ?>" style="display:inline;" data-confirm="Hapus jenis pajak ini? Pajak yang sudah dipakai pada rincian belanja tidak dapat dihapus.">
 													<input type="hidden" name="jenis_parameter" value="pajak">
 													<input type="hidden" name="action" value="hapus">
 													<input type="hidden" name="id" value="<?= (int) $tax['id'] ?>">
@@ -151,7 +151,17 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 				try {
 					openForm(JSON.parse($(this).attr('data-pajak')));
 				} catch (error) {
-					window.alert('Data parameter tidak dapat dibaca. Muat ulang halaman dan coba lagi.');
+					if (window.Swal && typeof Swal.fire === 'function') {
+										Swal.fire({
+											title: 'Gagal',
+											text: 'Data parameter tidak dapat dibaca. Muat ulang halaman dan coba lagi.',
+											icon: 'error',
+											confirmButtonText: 'OK'
+										});
+									} else if (typeof notification === 'function') {
+										notification('error', 'Data parameter tidak dapat dibaca. Muat ulang halaman dan coba lagi.');
+									}
+
 				}
 			});
 		})(jQuery);

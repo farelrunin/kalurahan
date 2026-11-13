@@ -20,7 +20,17 @@
 			if (typeof notification === 'function') {
 				notification(type, message);
 			} else {
-				window.alert(message);
+				if (window.Swal && typeof Swal.fire === 'function') {
+					Swal.fire({
+						title: 'Informasi',
+						text: message,
+						icon: 'info',
+						confirmButtonText: 'OK'
+					});
+				} else if (typeof notification === 'function') {
+					notification('info', message);
+				}
+
 			}
 		}
 

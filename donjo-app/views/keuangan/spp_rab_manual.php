@@ -279,7 +279,7 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 											<?php endif; ?>
 										<?php endif; ?>
 										<?php if ($can_delete && $record['status'] === 'draft'): ?>
-											<form method="post" action="<?= site_url('keuangan_manual/spp_rab') ?>" style="display:inline;" onsubmit="return confirm('Hapus SPP draft ini?');">
+														<form method="post" action="<?= site_url('keuangan_manual/spp_rab') ?>" style="display:inline;" data-confirm="Hapus SPP draft ini?">
 												<input type="hidden" name="<?= html_escape($csrf_name) ?>" value="<?= html_escape($csrf_value) ?>">
 												<input type="hidden" name="action" value="hapus">
 												<input type="hidden" name="id" value="<?= (int) $record['id'] ?>">
@@ -324,7 +324,17 @@ $jsonFlags = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
 					try {
 						rates = JSON.parse(row.attr('data-rates') || '[]');
 					} catch (error) {
-						window.alert('Data tarif pajak tidak dapat dibaca. Muat ulang halaman.');
+						if (window.Swal && typeof Swal.fire === 'function') {
+										Swal.fire({
+											title: 'Gagal',
+											text: 'Data tarif pajak tidak dapat dibaca. Muat ulang halaman.',
+											icon: 'error',
+											confirmButtonText: 'OK'
+										});
+									} else if (typeof notification === 'function') {
+										notification('error', 'Data tarif pajak tidak dapat dibaca. Muat ulang halaman.');
+									}
+
 					}
 					var tax = rates.reduce(function (sum, rate) {
 						return sum + Math.round(amount * Number(rate)) / 100;

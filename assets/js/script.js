@@ -497,19 +497,58 @@ setTimeout(function() {
 }, 3000);
 
 function notification(type, message) {
-    if (type == "") {
+    if (!type) {
         return;
     }
+
+    var safeType = String(type).toLowerCase();
+    var normalizedType = {
+        success: "success",
+        error: "error",
+        warning: "warning",
+        info: "info"
+    }[safeType] || safeType;
+
+    if (typeof Swal !== "undefined" && typeof Swal.fire === "function") {
+        var titles = {
+            success: "Berhasil",
+            error: "Gagal",
+            warning: "Peringatan",
+            info: "Informasi"
+        };
+
+        Swal.fire({
+            icon: normalizedType,
+            title: titles[normalizedType] || "Notifikasi",
+            html: message || "",
+            confirmButtonText: "OK",
+            timer: normalizedType === "error" || normalizedType === "warning" ? 5000 : 3500,
+            timerProgressBar: true,
+            customClass: {
+                popup: "swal2-popup premium-notification",
+                title: "swal2-title premium-notification__title",
+                htmlContainer: "swal2-content premium-notification__content",
+                confirmButton: "swal2-confirm premium-notification__button"
+            },
+            showClass: {
+                popup: "swal2-show"
+            },
+            hideClass: {
+                popup: "swal2-hide"
+            }
+        });
+
+        return;
+    }
+
+    $("#notification").remove();
     $("#maincontent").prepend(
-        "" +
         '<div id="notification" class="alert alert-' +
-        type +
+        normalizedType +
         ' alert-dismissible">' +
         '<button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>' +
-        message +
-        "" +
-        "</div>" +
-        ""
+        (message || "") +
+        '</div>'
     );
 }
 

@@ -32,6 +32,15 @@ $actions = [
                         <a class="list-group-item" href="<?= site_url('keuangan_manual/spp_rab?' . http_build_query(['tahun_anggaran' => $finance_filter_year, 'tahap' => 'murni'])) ?>">
                             SPP Belanja
                         </a>
+                        <a class="list-group-item" href="<?= site_url('keuangan_manual/parameter_rab?jenis=pajak') ?>">
+                            Parameter Pajak / Potongan
+                        </a>
+                        <a class="list-group-item" href="<?= site_url('keuangan_manual/parameter_rab?jenis=rekening') ?>">
+                            Parameter Rekening APBDesa
+                        </a>
+                        <a class="list-group-item" href="<?= site_url('keuangan_manual/parameter_rab?jenis=output') ?>">
+                            Parameter Output / Keluaran
+                        </a>
                     <?php endif; ?>
                 </div>
             </div>
