@@ -18,6 +18,7 @@ error_log
 /storage/framework/views/
 /storage/logs/
 /desa/config/database.php
+/desa/cache/versi_app_cache
 
 # Dependencies (managed via composer install)
 /vendor/
