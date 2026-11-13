@@ -19,6 +19,7 @@ error_log
 /storage/logs/
 /desa/config/database.php
 /desa/cache/versi_app_cache
+/desa/cache/status_langganan
 
 # Dependencies (managed via composer install)
 /vendor/
