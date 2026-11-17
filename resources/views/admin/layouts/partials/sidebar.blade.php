@@ -52,7 +52,7 @@
                     <span class="pull-right-container"><i class='fa fa-angle-left pull-right'></i></span>
                 </a>
                 <ul class="treeview-menu <?= $financeMenuOpen ? 'menu-open' : jecho($modul_ini, $mod['slug'], 'active') ?>">
-                    <?php if ($mod['slug'] === 'keuangan' && $finance_filter_years !== []): ?>
+                    <?php if ($mod['slug'] === 'keuangan'): ?>
                     <?php
                     $financeFilterQuery = $finance_filter_query;
                     unset($financeFilterQuery['tahun_anggaran']);
@@ -61,16 +61,16 @@
                     }
                     ?>
                     <li class="finance-sidebar-year">
-                        <form method="get" action="<?= html_escape($finance_filter_action) ?>">
+                        <form method="get" action="<?= html_escape($finance_filter_action ?: ci_route('keuangan_manual/manual_apbdes')) ?>">
                             <?php foreach ($financeFilterQuery as $key => $value): ?>
                             <?php if (is_scalar($value)): ?>
                             <input type="hidden" name="<?= html_escape((string) $key) ?>" value="<?= html_escape((string) $value) ?>">
                             <?php endif ?>
                             <?php endforeach ?>
-                            <label for="finance-sidebar-year"><?= html_escape($finance_filter_label) ?></label>
+                            <label for="finance-sidebar-year"><?= html_escape($finance_filter_label ?: 'Tahun APBDes') ?></label>
                             <select class="form-control input-sm" id="finance-sidebar-year" name="tahun_anggaran" onchange="this.form.submit()">
-                                <?php foreach ($finance_filter_years as $year): ?>
-                                <option value="<?= html_escape((string) $year) ?>" <?= (string) $year === $finance_filter_year ? 'selected' : '' ?>>
+                                <?php foreach ($finance_filter_years ?: [date('Y')] as $year): ?>
+                                <option value="<?= html_escape((string) $year) ?>" <?= (string) $year === (string)($finance_filter_year ?? date('Y')) ? 'selected' : '' ?>>
                                     <?= html_escape((string) $year) ?>
                                 </option>
                                 <?php endforeach ?>
@@ -138,15 +138,23 @@
 <style>
     .finance-sidebar-year {
         padding: 10px 15px 10px 25px;
+        background-color: #222d32;
+        border-bottom: 1px solid #1a2226;
+        margin-bottom: 5px;
     }
 
     .finance-sidebar-year label {
-        color: #b8c7ce;
-        font-weight: 400;
+        color: #fff;
+        font-weight: bold;
+        font-size: 0.9em;
         margin-bottom: 5px;
+        display: block;
     }
 
     .finance-sidebar-year select {
         width: 100%;
+        color: #333;
+        background-color: #fff;
+        border: 1px solid #ccc;
     }
 </style>
