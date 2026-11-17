@@ -1647,7 +1647,7 @@ class Keuangan_manual extends Admin_Controller
     {
         isCan('b', 'param-bidang-kegiatan');
         $stream = fopen('php://temp', 'r+');
-        fputcsv($stream, ['Tingkatan', 'Kode', 'Nama']);
+        fputcsv($stream, ['Tingkatan (Pilih: bidang, sub_bidang, kegiatan)', 'Kode', 'Nama']);
         fputcsv($stream, ['bidang', '01', 'BIDANG 1']);
         fputcsv($stream, ['sub_bidang', '01.01', 'SUB BIDANG 1']);
         fputcsv($stream, ['kegiatan', '01.01.01', 'KEGIATAN 1']);
