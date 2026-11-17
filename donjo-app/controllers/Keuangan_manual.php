@@ -1185,8 +1185,8 @@ class Keuangan_manual extends Admin_Controller
                                 static fn ($key): string => strtolower(trim(ltrim((string) $key, "\xEF\xBB\xBF"))),
                                 array_keys($rows[0])
                             );
-                            if (array_diff(['jenis', 'kode', 'nama', 'kode_induk'], $headers) !== []) {
-                                throw new InvalidArgumentException('Kolom wajib: jenis, kode, nama, kode_induk.');
+                            if (array_diff(['tingkatan', 'kode', 'nama'], $headers) !== []) {
+                                throw new InvalidArgumentException('Kolom wajib: Tingkatan, Kode, Nama.');
                             }
                         }
                         foreach ($rows as &$row) {
@@ -1194,6 +1194,8 @@ class Keuangan_manual extends Admin_Controller
                                 array_map(static fn ($key): string => strtolower(trim(ltrim((string) $key, "\xEF\xBB\xBF"))), array_keys($row)),
                                 array_values($row)
                             );
+                            // Sesuaikan nama kolom untuk model
+                            $row['jenis'] = $row['tingkatan'];
                         }
                         unset($row);
                         $this->keuangan_manual_model->impor_rab_parameter($rows);
@@ -1645,10 +1647,10 @@ class Keuangan_manual extends Admin_Controller
     {
         isCan('b', 'param-bidang-kegiatan');
         $stream = fopen('php://temp', 'r+');
-        fputcsv($stream, ['jenis (bidang/sub_bidang/kegiatan)', 'kode', 'nama', 'kode_induk']);
-        fputcsv($stream, ['bidang', '01', 'BIDANG 1', '']); // Contoh
-        fputcsv($stream, ['sub_bidang', '01.01', 'SUB BIDANG 1', '01']); // Contoh
-        fputcsv($stream, ['kegiatan', '01.01.01', 'KEGIATAN 1', '01.01']); // Contoh
+        fputcsv($stream, ['Tingkatan', 'Kode', 'Nama']);
+        fputcsv($stream, ['bidang', '01', 'BIDANG 1']);
+        fputcsv($stream, ['sub_bidang', '01.01', 'SUB BIDANG 1']);
+        fputcsv($stream, ['kegiatan', '01.01.01', 'KEGIATAN 1']);
         rewind($stream);
         $csv = stream_get_contents($stream);
         fclose($stream);

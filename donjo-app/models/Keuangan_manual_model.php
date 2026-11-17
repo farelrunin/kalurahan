@@ -2833,8 +2833,16 @@ class Keuangan_manual_model extends MY_Model
             $type = str_replace(' ', '_', trim((string) ($row['jenis'] ?? '')));
             $code = $this->format_kode_bidang_kegiatan($type, trim((string) ($row['kode'] ?? '')));
             $name = trim($this->security->xss_clean((string) ($row['nama'] ?? '')));
-            $parentCode = trim((string) ($row['kode_induk'] ?? ''));
-            if ($type === '' && $code === null && $name === '' && $parentCode === '') {
+            
+            // Logika otomatis menentukan parent_code jika tidak ada kode_induk
+            $parentCode = '';
+            if ($type === 'sub_bidang') {
+                $parentCode = substr($code, 0, strrpos($code, '.'));
+            } elseif ($type === 'kegiatan') {
+                $parentCode = substr($code, 0, strrpos($code, '.'));
+            }
+
+            if ($type === '' && $code === null && $name === '' ) {
                 continue;
             }
             if (! in_array($type, ['bidang', 'sub_bidang', 'kegiatan'], true)
@@ -2845,7 +2853,7 @@ class Keuangan_manual_model extends MY_Model
             }
             if (($type === 'bidang' && $parentCode !== '')
                 || ($type !== 'bidang' && $parentCode === '')) {
-                throw new InvalidArgumentException('Kode induk pada baris ' . ($index + 2) . ' tidak sesuai tingkatan.');
+                // Biarkan validasi ini tetap ada, tapi kita sudah mengisi $parentCode secara otomatis di atas
             }
             $parentType = ['sub_bidang' => 'bidang', 'kegiatan' => 'sub_bidang'][$type] ?? null;
             if ($parentType !== null) {
