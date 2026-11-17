@@ -1514,14 +1514,19 @@ class Keuangan_manual extends Admin_Controller
             return;
         }
         isCan('b', $jenis === 'rekening' ? 'param-rekening-apbdesa' : 'param-output-keluaran');
-        $headers = $jenis === 'rekening'
-            ? ['kode', 'nama']
-            : ['kode_kegiatan', 'kode_output', 'uraian', 'satuan'];
+        
         $stream = fopen('php://temp', 'r+');
-        fputcsv($stream, $headers);
+        if ($jenis === 'rekening') {
+            fputcsv($stream, ['kode', 'nama']);
+            fputcsv($stream, ['4.1.1.01.01', 'PAD Desa']); // Contoh
+        } else {
+            fputcsv($stream, ['kode_kegiatan', 'kode_output', 'uraian', 'satuan']);
+            fputcsv($stream, ['01.01.01', '01', 'Output Kegiatan', 'Laporan']); // Contoh
+        }
         rewind($stream);
         $csv = stream_get_contents($stream);
         fclose($stream);
+        
         $this->output
             ->set_content_type('text/csv', 'utf-8')
             ->set_header('Content-Disposition: attachment; filename="template_parameter_' . $jenis . '.csv"')
@@ -1640,7 +1645,10 @@ class Keuangan_manual extends Admin_Controller
     {
         isCan('b', 'param-bidang-kegiatan');
         $stream = fopen('php://temp', 'r+');
-        fputcsv($stream, ['jenis', 'kode', 'nama', 'kode_induk']);
+        fputcsv($stream, ['jenis (bidang/sub_bidang/kegiatan)', 'kode', 'nama', 'kode_induk']);
+        fputcsv($stream, ['bidang', '01', 'BIDANG 1', '']); // Contoh
+        fputcsv($stream, ['sub_bidang', '01.01', 'SUB BIDANG 1', '01']); // Contoh
+        fputcsv($stream, ['kegiatan', '01.01.01', 'KEGIATAN 1', '01.01']); // Contoh
         rewind($stream);
         $csv = stream_get_contents($stream);
         fclose($stream);
