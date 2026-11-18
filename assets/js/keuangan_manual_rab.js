@@ -377,7 +377,7 @@
 			var html = '<option value="">Pilih</option>';
 			Object.keys(categories).sort().forEach(function (code) {
 				html += '<option value="' + escapeHtml(code) + '">' +
-					escapeHtml(labels[code] || code) + '</option>';
+					escapeHtml(code + ' ' + (labels[code] || code)) + '</option>';
 			});
 			$('#income-kategori').html(html);
 			$('#income-subkategori, #income-detail').html('<option value="">Pilih</option>').prop('disabled', true);
@@ -399,7 +399,7 @@
 			var html = '<option value="">Pilih</option>';
 			Object.keys(groups).sort().forEach(function (code) {
 				html += '<option value="' + escapeHtml(code) + '">' +
-					escapeHtml(groups[code]) + '</option>';
+					escapeHtml(code + ' ' + groups[code]) + '</option>';
 			});
 			$('#income-subkategori').html(html).prop('disabled', !category || !Object.keys(groups).length);
 			$('#income-detail').html('<option value="">Pilih</option>').prop('disabled', true);
@@ -1244,7 +1244,6 @@
 					populateIncomeSubcategories();
 					$('#income-subkategori').val(incomePartsForEdit.slice(0, 3).join('.'));
 					populateIncomeDetails();
-					$('#income-detail').val(rab.kd_rekening);
 					$('#rab-rekening').val(rab.kd_rekening);
 				}
 				if (rab.pos === '5.BELANJA') {
@@ -1522,11 +1521,7 @@
 					$('#filter-kegiatan').val(kegiatan);
 				}
 				resetForm();
-				if (expenseInput || incomeInput || financeInput) {
-					$('#rab-list-section').hide();
-				} else {
-					loadRows();
-				}
+				loadRows();
 			}).fail(function (xhr) {
 				notify('error', requestError(xhr, 'Gagal menyimpan rincian anggaran'));
 			});

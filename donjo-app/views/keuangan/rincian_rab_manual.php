@@ -828,7 +828,7 @@ $finance_change = $is_finance && $initial_mode === 'perubahan';
 				<?php endif; ?>
 
 				<?php if (! $finance_view && ! $finance_change): ?>
-				<div id="rab-list-section" <?= ($initial_mode === 'input' || $expense_view || $expense_change) ? 'style="display:none;"' : '' ?>>
+				<div id="rab-list-section" <?= ($expense_view || $expense_change) ? 'style="display:none;"' : '' ?>>
 				<div id="rab-perbandingan-wrap" style="display: none;">
 					<h4>Perbandingan Rincian Anggaran</h4>
 					<div class="table-responsive">

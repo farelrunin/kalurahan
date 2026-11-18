@@ -564,12 +564,13 @@ class Keuangan_grafik_dd_model extends CI_model
         $data = $this->db->get('keuangan_ref_rek2')->result_array();
 
         foreach ($data as $i => $d) {
-            $data[$i]['anggaran']         = $this->pagu_subval_pendapatan($d['Kelompok'], $thn);
-            $data[$i]['realisasi']        = $this->real_subval_pendapatan($d['Kelompok'], $thn, $smt1);
-            $data[$i]['realisasi_bunga']  = $this->real_subval_bunga($d['Kelompok'], $thn, $smt1);
-            $data[$i]['realisasi_jurnal'] = $this->real_subval_jurnal($d['Kelompok'], $thn, $smt1);
+            $data[$i]['anggaran']        = $this->pagu_subval_pendapatan($d['Kelompok'], $thn);
+            $data[$i]['realisasi']       = $this->real_subval_pendapatan($d['Kelompok'], $thn, $smt1);
+            $data[$i]['realisasi_bunga'] = $this->real_subval_bunga($d['Kelompok'], $thn, $smt1);
+            $data[$i]['realisasi_jurnal']= $this->real_subval_jurnal($d['Kelompok'], $thn, $smt1);
             $data[$i]['sub_pendapatan2']  = $this->sub_pendapatan2($id_keuangan_master, $d['Kelompok'], $thn, $smt1);
         }
+
 
         return $data;
     }
@@ -909,6 +910,7 @@ class Keuangan_grafik_dd_model extends CI_model
 
         return $this->db->get('keuangan_ta_spp_rinci')->result_array();
     }
+
 
     private function sub_pendapatan2($id_keuangan_master, $kelompok, $thn, $smt1 = false)
     {

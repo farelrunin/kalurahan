@@ -9,25 +9,25 @@ class Migrasi_2026110887 extends MY_model
     public function up(): bool
     {
         $groups = [
+            'anggaran-keuangan' => [
+                'name' => 'Anggaran',
+                'icon' => 'fa-list-alt',
+                'order' => 1,
+                'items' => [
+                    'anggaran-pendapatan' => ['Pendapatan', 'keuangan_manual/anggaran_rab/pendapatan', 'fa-circle-o', 1],
+                    'anggaran-belanja' => ['Belanja', 'keuangan_manual/anggaran_rab/belanja', 'fa-circle-o', 2],
+                    'anggaran-pembiayaan' => ['Pembiayaan', 'keuangan_manual/anggaran_rab/pembiayaan', 'fa-circle-o', 3],
+                ],
+            ],
             'parameter-keuangan' => [
                 'name' => 'Parameter',
                 'icon' => 'fa-server',
-                'order' => 1,
+                'order' => 2,
                 'items' => [
                     'param-bidang-kegiatan' => ['Bidang dan Kegiatan', 'keuangan_manual/parameter_rab', 'fa-circle-o', 1],
                     'param-rekening-apbdesa' => ['Rekening APBDesa', 'keuangan_manual/parameter_rab?jenis=rekening', 'fa-circle-o', 2],
                     'param-output-keluaran' => ['Output/Keluaran', 'keuangan_manual/parameter_rab?jenis=output', 'fa-circle-o', 3],
                     'param-pajak' => ['Pajak / Potongan', 'keuangan_manual/parameter_rab?jenis=pajak', 'fa-percent', 4],
-                ],
-            ],
-            'anggaran-keuangan' => [
-                'name' => 'Anggaran',
-                'icon' => 'fa-list-alt',
-                'order' => 2,
-                'items' => [
-                    'anggaran-pendapatan' => ['Pendapatan', 'keuangan_manual/anggaran_rab/pendapatan', 'fa-circle-o', 1],
-                    'anggaran-belanja' => ['Belanja', 'keuangan_manual/anggaran_rab/belanja', 'fa-circle-o', 2],
-                    'anggaran-pembiayaan' => ['Pembiayaan', 'keuangan_manual/anggaran_rab/pembiayaan', 'fa-circle-o', 3],
                 ],
             ],
             'laporan-keuangan' => [

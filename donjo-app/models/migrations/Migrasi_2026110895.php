@@ -79,7 +79,7 @@ class Migrasi_2026110895 extends MY_model
                 'url' => '',
                 'aktif' => 1,
                 'ikon' => 'fa-server',
-                'urut' => 1,
+                'urut' => 2,
                 'level' => 2,
                 'hidden' => 0,
                 'ikon_kecil' => 'fa-server',

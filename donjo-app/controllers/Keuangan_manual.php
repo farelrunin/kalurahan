@@ -1182,7 +1182,13 @@ class Keuangan_manual extends Admin_Controller
                         $rows = (new \Rap2hpoutre\FastExcel\FastExcel())->import($file)->toArray();
                         if ($rows !== []) {
                             $headers = array_map(
-                                static fn ($key): string => strtolower(trim(ltrim((string) $key, "\xEF\xBB\xBF"))),
+                                static function ($key): string {
+                                    $normalized = strtolower(trim(ltrim((string) $key, "\xEF\xBB\xBF")));
+                                    $normalized = preg_replace('/\s*\([^)]*\)/', '', $normalized);
+                                    $normalized = preg_replace('/[^a-z0-9_]+/', '_', $normalized);
+
+                                    return trim((string) preg_replace('/_+/', '_', $normalized), '_');
+                                },
                                 array_keys($rows[0])
                             );
                             if (array_diff(['tingkatan', 'kode', 'nama'], $headers) !== []) {
@@ -1191,11 +1197,17 @@ class Keuangan_manual extends Admin_Controller
                         }
                         foreach ($rows as &$row) {
                             $row = array_combine(
-                                array_map(static fn ($key): string => strtolower(trim(ltrim((string) $key, "\xEF\xBB\xBF"))), array_keys($row)),
+                                array_map(static function ($key): string {
+                                    $normalized = strtolower(trim(ltrim((string) $key, "\xEF\xBB\xBF")));
+                                    $normalized = preg_replace('/\s*\([^)]*\)/', '', $normalized);
+                                    $normalized = preg_replace('/[^a-z0-9_]+/', '_', $normalized);
+
+                                    return trim((string) preg_replace('/_+/', '_', $normalized), '_');
+                                }, array_keys($row)),
                                 array_values($row)
                             );
                             // Sesuaikan nama kolom untuk model
-                            $row['jenis'] = $row['tingkatan'];
+                            $row['jenis'] = $row['tingkatan'] ?? '';
                         }
                         unset($row);
                         $this->keuangan_manual_model->impor_rab_parameter($rows);
@@ -1646,19 +1658,49 @@ class Keuangan_manual extends Admin_Controller
     public function unduh_template_parameter_rab(): void
     {
         isCan('b', 'param-bidang-kegiatan');
-        $stream = fopen('php://temp', 'r+');
-        fputcsv($stream, ['Tingkatan (Pilih: bidang, sub_bidang, kegiatan)', 'Kode', 'Nama']);
-        fputcsv($stream, ['bidang', '01', 'BIDANG 1']);
-        fputcsv($stream, ['sub_bidang', '01.01', 'SUB BIDANG 1']);
-        fputcsv($stream, ['kegiatan', '01.01.01', 'KEGIATAN 1']);
-        rewind($stream);
-        $csv = stream_get_contents($stream);
-        fclose($stream);
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('template_bidang_kegiatan');
+        $sheet->fromArray([
+            ['Tingkatan (Pilih: bidang, sub_bidang, kegiatan)', 'Kode', 'Nama'],
+            ['bidang', '01', 'BIDANG 1'],
+            ['sub_bidang', '01.01', 'SUB BIDANG 1'],
+            ['kegiatan', '01.01.01', 'KEGIATAN 1'],
+        ], null, 'A1');
+
+        $sheet->getStyle('A1:C4')->getFont()->setBold(true);
+        $sheet->getStyle('A1:C4')->getAlignment()->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+        $sheet->getColumnDimension('A')->setWidth(32);
+        $sheet->getColumnDimension('B')->setWidth(18);
+        $sheet->getColumnDimension('C')->setWidth(32);
+        $sheet->freezePane('A2');
+
+        $dropdown = new \PhpOffice\PhpSpreadsheet\Cell\DataValidation();
+        $dropdown->setType(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::TYPE_LIST);
+        $dropdown->setErrorStyle(\PhpOffice\PhpSpreadsheet\Cell\DataValidation::STYLE_STOP);
+        $dropdown->setAllowBlank(false);
+        $dropdown->setShowInputMessage(true);
+        $dropdown->setShowErrorMessage(true);
+        $dropdown->setPromptTitle('Pilih tingkatan');
+        $dropdown->setPrompt('Pilih satu: bidang, sub_bidang, atau kegiatan.');
+        $dropdown->setErrorTitle('Nilai tidak valid');
+        $dropdown->setError('Pilih salah satu opsi yang tersedia.');
+        $dropdown->setFormula1('"bidang,sub_bidang,kegiatan"');
+        $sheet->setDataValidation('A2:A1000', $dropdown);
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $tempFile = tempnam(sys_get_temp_dir(), 'template_param_');
+        $writer->save($tempFile);
 
         $this->output
-            ->set_content_type('text/csv', 'utf-8')
-            ->set_header('Content-Disposition: attachment; filename="template_bidang_kegiatan.csv"')
-            ->set_output("\xEF\xBB\xBF" . $csv);
+            ->set_content_type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'utf-8')
+            ->set_header('Content-Disposition: attachment; filename="template_bidang_kegiatan.xlsx"')
+            ->set_output(file_get_contents($tempFile));
+
+        if (is_file($tempFile)) {
+            unlink($tempFile);
+        }
     }
 
     public function laporan_rab(?string $shortcut = null, ?string $reportShortcut = null): void

@@ -558,6 +558,7 @@ class Keuangan_grafik_manual_model extends MY_Model
         return $this->db->get('keuangan_manual_rinci')->result_array();
     }
 
+
     private function sub_pendapatan2($kelompok, $thn = false)
     {
         $this->db->select('Kelompok, Jenis, Nama_Jenis');

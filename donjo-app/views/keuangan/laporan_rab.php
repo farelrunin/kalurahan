@@ -89,73 +89,10 @@ $isPrimaryReport = in_array($report_key, ['pendapatan', 'belanja', 'pembiayaan']
 				</div>
 			</div>
 			<div class="box-body">
-				<form method="get" action="<?= site_url('keuangan_manual/laporan_rab') ?>" class="no-print">
-					<input type="hidden" name="tahun_anggaran" value="<?= html_escape((string) $finance_filter_year) ?>">
-					<div class="row">
-						<div class="col-md-3 col-sm-6">
-							<div class="form-group">
-								<label for="laporan-jenis">Jenis Laporan</label>
-								<select name="laporan" id="laporan-jenis" class="form-control">
-									<?php foreach ($reportTypes as $key => $label): ?>
-										<option value="<?= html_escape($key) ?>" <?= $report_key === $key ? 'selected' : '' ?>><?= html_escape($label) ?></option>
-									<?php endforeach; ?>
-								</select>
-							</div>
-						</div>
-						<div class="col-md-2 col-sm-6">
-							<div class="form-group">
-								<label for="laporan-tahap">Tahap Anggaran</label>
-								<select name="tahap" id="laporan-tahap" class="form-control">
-									<option value="">Semua</option>
-									<option value="murni" <?= $filters['tahap'] === 'murni' ? 'selected' : '' ?>>Murni</option>
-									<option value="perubahan" <?= $filters['tahap'] === 'perubahan' ? 'selected' : '' ?>>Perubahan</option>
-								</select>
-							</div>
-						</div>
-						<div class="col-md-2 col-sm-6" id="filter-bidang-wrap">
-							<div class="form-group">
-								<label for="laporan-bidang">Bidang</label>
-								<select name="bidang" id="laporan-bidang" class="form-control">
-									<option value="">Semua</option>
-									<?php foreach ($references['bidang'] as $bidang): ?>
-										<option value="<?= html_escape($bidang['kode']) ?>" <?= $filters['bidang'] === $bidang['kode'] ? 'selected' : '' ?>>
-											<?= html_escape($bidang['kode'] . ' ' . $bidang['nama']) ?>
-										</option>
-									<?php endforeach; ?>
-								</select>
-							</div>
-						</div>
-						<div class="col-md-3 col-sm-6" id="filter-kegiatan-wrap">
-							<div class="form-group">
-								<label for="laporan-kegiatan">Kegiatan</label>
-								<select name="kegiatan" id="laporan-kegiatan" class="form-control">
-									<option value="">Semua</option>
-									<?php foreach ($references['kegiatan'] as $kegiatan): ?>
-										<option value="<?= html_escape($kegiatan['kode']) ?>" <?= $filters['kegiatan'] === $kegiatan['kode'] ? 'selected' : '' ?>>
-											<?= html_escape($kegiatan['kode'] . ' ' . $kegiatan['nama']) ?>
-										</option>
-									<?php endforeach; ?>
-								</select>
-							</div>
-						</div>
-						<div class="col-md-2 col-sm-6" id="filter-sumber-wrap">
-							<div class="form-group">
-								<label for="laporan-sumber">Sumber Dana</label>
-								<select name="sumber_dana" id="laporan-sumber" class="form-control">
-									<option value="">Semua</option>
-									<?php foreach ($references['sumber_dana'] as $source): ?>
-										<option value="<?= html_escape($source['kode'] ?? $source['nama']) ?>" <?= $filters['sumber_dana'] === ($source['kode'] ?? $source['nama']) ? 'selected' : '' ?>>
-											<?= html_escape($source['nama']) ?>
-										</option>
-									<?php endforeach; ?>
-								</select>
-							</div>
-						</div>
-					</div>
-					<button type="submit" class="btn btn-primary"><i class="fa fa-search"></i> Tampilkan</button>
+				<div class="no-print">
 					<a href="<?= html_escape($export_url) ?>" class="btn btn-success"><i class="fa fa-file-excel-o"></i> Ekspor Excel</a>
 					<button type="button" class="btn btn-default" onclick="window.print()"><i class="fa fa-print"></i> Cetak PDF</button>
-				</form>
+				</div>
 
 				<hr>
 				<?php if (! empty($source_match) && (
@@ -388,19 +325,3 @@ $isPrimaryReport = in_array($report_key, ['pendapatan', 'belanja', 'pembiayaan']
 		</div>
 	</section>
 </div>
-<script>
-	(function () {
-		'use strict';
-		var report = document.getElementById('laporan-jenis');
-		var bidang = document.getElementById('filter-bidang-wrap');
-		var kegiatan = document.getElementById('filter-kegiatan-wrap');
-		var sumber = document.getElementById('filter-sumber-wrap');
-		function updateFilters() {
-			bidang.style.display = report.value === 'belanja' ? '' : 'none';
-			kegiatan.style.display = report.value === 'belanja' ? '' : 'none';
-			sumber.style.display = report.value === 'sumber_dana' ? '' : 'none';
-		}
-		report.addEventListener('change', updateFilters);
-		updateFilters();
-	})();
-</script>

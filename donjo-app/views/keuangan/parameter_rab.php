@@ -29,7 +29,7 @@ $parentOptions = static function (array $rows, string $type) use ($jsonFlags): s
 	<section class="content" id="maincontent">
 		<div class="box box-info">
 			<div class="box-header with-border">
-				<h3 class="box-title">Referensi yang digunakan e-RAB</h3>
+				<h3 class="box-title">Kelola Parameter Keuangan</h3>
 				<div class="box-tools pull-right">
 					<a href="<?= site_url('keuangan_manual/rincian_rab') ?>" class="btn btn-info btn-sm">
 						<i class="fa fa-list-alt"></i> Rincian e-RAB
@@ -40,8 +40,25 @@ $parentOptions = static function (array $rows, string $type) use ($jsonFlags): s
 				</div>
 			</div>
 			<div class="box-body">
-				<div class="alert alert-info">
-					Referensi bidang, kegiatan, rekening, output, dan sumber dana dikelola di halaman ini.
+				<div class="alert alert-info" style="margin-bottom: 15px;">
+					<strong>Petunjuk:</strong> halaman ini berisi referensi utama yang dipakai pada pengelolaan e-RAB, seperti bidang dan kegiatan, rekening, output, serta pajak/potongan. Gunakan filter atau tombol cepat di bawah ini untuk berpindah antar jenis parameter.
+				</div>
+				<div class="well well-sm" style="margin-top: 0; margin-bottom: 20px;">
+					<div class="row">
+						<div class="col-md-12">
+							<p class="text-muted" style="margin-bottom: 10px;"><strong>Jenis parameter:</strong></p>
+							<div class="btn-group btn-group-sm" role="group" aria-label="Jenis parameter">
+								<?php foreach ($types as $key => $label): ?>
+									<a href="<?= site_url('keuangan_manual/parameter_rab?jenis=' . rawurlencode((string) $key)) ?>" class="btn btn-<?= $selectedType === $key ? 'primary' : 'default' ?>">
+										<?= html_escape($label) ?>
+									</a>
+								<?php endforeach; ?>
+								<a href="<?= site_url('keuangan_manual/parameter_rab') ?>" class="btn btn-<?= $selectedType === '' ? 'primary' : 'default' ?>">
+									Semua
+								</a>
+							</div>
+						</div>
+					</div>
 				</div>
 				<div class="row">
 					<?php if ($can_edit): ?>

@@ -47,6 +47,7 @@
         "mike42/escpos-php": "^3.0",
         "opensid/router": "^2403",
         "openspout/openspout": "^4.24",
+        "phpoffice/phpspreadsheet": "^5.11",
         "ramsey/uuid": "^4.2",
         "rap2hpoutre/fast-excel": "^5.5",
         "rennokki/laravel-eloquent-query-cache": "^3.4",

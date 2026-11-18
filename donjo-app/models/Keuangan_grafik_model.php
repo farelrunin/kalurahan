@@ -601,6 +601,7 @@ class Keuangan_grafik_model extends MY_Model
             $data[$i]['sub_pendapatan2']  = $this->sub_pendapatan2($id_keuangan_master, $d['Kelompok'], $thn, $smt1);
         }
 
+
         return $data;
     }
 
@@ -938,6 +939,7 @@ class Keuangan_grafik_model extends MY_Model
 
         return $this->config_id('keuangan_ta_spp_rinci', 'keuangan_ta_spp_rinci')->get('keuangan_ta_spp_rinci')->result_array();
     }
+
 
     private function sub_pendapatan2($id_keuangan_master, $kelompok, $thn, $smt1 = false)
     {
